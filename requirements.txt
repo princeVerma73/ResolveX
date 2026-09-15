@@ -1,1 +1,3 @@
-# Add dependencies as each component is implemented.
+# ResolveX - Backend Requirements
+supabase>=2.0.0
+python-dotenv>=1.0.0
