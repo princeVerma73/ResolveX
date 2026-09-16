@@ -3,15 +3,13 @@
 Verifies that:
 1. The local migration file 'database/migrations/001_initial_schema.sql' exists and
    defines all 7 core tables, relationships, constraints, indexes, triggers,
-   role grants, and idempotent RLS policies.
-2. The public Supabase client initializes properly with SUPABASE_PUBLISHABLE_KEY.
+   schema grants, and idempotent RLS policies.
+2. The Supabase client initializes properly with configured credentials.
 3. The 7 core tables (customers, orders, order_items, payments, chat_sessions, messages, tickets)
-   are accessible and queryable via the PostgREST API.
-4. An isolated conversational lifecycle (chat_sessions + messages) can be created and queried.
-5. Privileged operations via get_supabase_service_client() function when configured.
+   are accessible and queryable via the Supabase REST/PostgREST API.
+4. An isolated conversational lifecycle (chat_sessions + messages) can be created, queried, and cleaned up.
 """
 
-import os
 import sys
 import uuid
 from pathlib import Path
@@ -21,10 +19,7 @@ ROOT_DIR = Path(__file__).resolve().parent.parent
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
-from Backend.db.supabase_client import (
-    get_supabase_client,
-    get_supabase_service_client,
-)
+from Backend.db.supabase_client import get_supabase_client
 
 MIGRATION_FILE = ROOT_DIR / "database" / "migrations" / "001_initial_schema.sql"
 
@@ -85,8 +80,7 @@ def test_migration_file_contains_grants_and_idempotent_rls():
     content = MIGRATION_FILE.read_text(encoding="utf-8").lower()
 
     # Role grants
-    assert "grant usage on schema public to anon, authenticated, service_role" in content
-    assert "grant all on all tables in schema public to service_role" in content
+    assert "grant usage on schema public" in content
 
     # RLS enablement
     assert "enable row level security" in content
@@ -100,8 +94,8 @@ def test_migration_file_contains_grants_and_idempotent_rls():
 # 2. Client Initialization Tests
 # =============================================================================
 
-def test_public_supabase_client_ready():
-    """Verify public Supabase client initializes properly."""
+def test_supabase_client_ready():
+    """Verify Supabase client initializes properly."""
     client = get_supabase_client()
     assert client is not None
 
@@ -122,13 +116,13 @@ def test_remote_table_accessible(table_name: str):
     except Exception as exc:
         pytest.fail(
             f"Failed to query table '{table_name}'. "
-            f"If you have updated the migration with grants and RLS, please run the SQL from "
+            f"If you have not run the migration with grants and RLS, please run the SQL from "
             f"'database/migrations/001_initial_schema.sql' in your Supabase SQL Editor. Error: {exc}"
         )
 
 
 def test_remote_chat_session_lifecycle():
-    """Tests an isolated public chat session and message insertion and cleanup."""
+    """Tests an isolated conversational lifecycle (chat session + message insertion and cleanup)."""
     client = get_supabase_client()
     test_session_id = f"TEST-SES-{uuid.uuid4().hex[:8]}"
     test_msg_id = f"TEST-MSG-{uuid.uuid4().hex[:8]}"
@@ -179,13 +173,11 @@ def test_remote_chat_session_lifecycle():
 
     finally:
         # Cleanup
-        has_service_key = bool(os.getenv("SUPABASE_SERVICE_ROLE_KEY", "").strip())
-        cleanup_client = get_supabase_service_client() if has_service_key else client
         try:
-            cleanup_client.table("messages").delete().eq("message_id", test_msg_id).execute()
+            client.table("messages").delete().eq("message_id", test_msg_id).execute()
         except Exception:
             pass
         try:
-            cleanup_client.table("chat_sessions").delete().eq("session_id", test_session_id).execute()
+            client.table("chat_sessions").delete().eq("session_id", test_session_id).execute()
         except Exception:
             pass

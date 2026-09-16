@@ -9,7 +9,7 @@
 | Step | Topic | Status | Description |
 | :--- | :--- | :---: | :--- |
 | **Step 1** | Supabase Project Setup | **Completed** | Managed PostgreSQL backend initialization for persistent storage & future vector search. |
-| **Step 2** | Supabase Backend Connection | **Completed** | Secure client separation (`get_supabase_client` vs `get_supabase_service_client`), environment loading, and connection tests. |
+| **Step 2** | Supabase Backend Connection | **Completed** | Clean Python Supabase client provider (`Backend/db/supabase_client.py`), environment variable loading, and connectivity test. |
 | **Step 3** | Database Schema & Migrations | **Completed** | 7 core relational tables, foreign key constraints, indexes, triggers, scoped role grants, and idempotent RLS policies. |
 | **Step 4** | Core Domain Models & Services | *Pending* | Pydantic schemas, database service layer, and typed data accessors. |
 | **Step 5** | RAG Pipeline & Vector Search | *Pending* | Knowledge base ingestion, chunking, embeddings, and similarity retrieval via `pgvector`. |
@@ -55,38 +55,17 @@ flowchart TD
 
 ---
 
-## Step 2 — Supabase Backend Connection & Client Security
+## Step 2 — Supabase Backend Connection
 
 ### WHAT
-A secure, dual-client Python connection layer separating **public/client-facing** operations from **privileged backend service** operations.
+A secure, reusable, and testable Python client provider connecting backend services to the remote Supabase instance.
 
 ### WHY & Architecture Principles
-1. **Strict Client Separation**:
-   - **Public Client (`get_supabase_client()`)**: Uses `SUPABASE_PUBLISHABLE_KEY` (or `SUPABASE_ANON_KEY`). Operates as the PostgreSQL `anon` role, strictly governed by Row Level Security (RLS). It never falls back to the service-role key.
-   - **Backend Service Client (`get_supabase_service_client()`)**: Uses `SUPABASE_SERVICE_ROLE_KEY`. Operates as the PostgreSQL `service_role` to perform administrative and agent tasks (bypassing RLS). It is strictly backend-only and never exposed to client code or logs.
-2. **Environment Variable Protection**:
-   - Environment variables are loaded via `python-dotenv` from the root `.env` file (which is git-ignored).
-   - Descriptive exceptions guide developers if required keys are missing.
-3. **Singleton Pattern**:
-   - Avoids socket exhaustion by maintaining reusable client singletons across backend execution.
+1. **Singleton Pattern**: Reuses a module-level `_supabase_client` instance across the entire backend lifetime to prevent socket exhaustion.
+2. **Environment Variable Protection**: Safely loads `SUPABASE_URL` and `SUPABASE_PUBLISHABLE_KEY` from the root `.env` file via `python-dotenv` without hardcoding credentials into source code.
+3. **Fail-Fast Validation**: Descriptive exceptions guide developers immediately if environment configurations are missing.
 
-### Dual-Client Architecture Diagram
-
-```mermaid
-flowchart TD
-    subgraph PublicFlow["Public / Client Flow"]
-        PubClient["Public/Anon Client\n(Frontend / Web Chat)"] -->|REST API with Publishable Key| PostgREST["PostgREST API"]
-        PostgREST -->|Assumes anon role| SecLayer["PostgreSQL Privileges + RLS"]
-        SecLayer --> RestrAccess["Restricted Data Access\n(Chat Sessions, Messages, Scoped Lookups)"]
-    end
-
-    subgraph BackendFlow["Trusted Backend Flow"]
-        BackService["Trusted Backend\n(LangGraph Agents, Tools, RAG)"] -->|Initializes with Service Key| ServClient["Explicit Service Client\n(get_supabase_service_client)"]
-        ServClient -->|Bypasses RLS with service_role| BackOps["Backend-Only Database Operations\n(Full Administrative Access)"]
-    end
-```
-
-### Module Code: `Backend/db/supabase_client.py`
+### Key Code: `Backend/db/supabase_client.py`
 
 ```python
 import os
@@ -105,39 +84,31 @@ else:
 SUPABASE_URL: str = os.getenv("SUPABASE_URL", "").strip()
 SUPABASE_PUBLISHABLE_KEY: str = (
     os.getenv("SUPABASE_PUBLISHABLE_KEY", "")
-    or os.getenv("SUPABASE_ANON_KEY", "")
     or os.getenv("SUPABASE_KEY", "")
+    or os.getenv("SUPABASE_ANON_KEY", "")
 ).strip()
-SUPABASE_SERVICE_ROLE_KEY: str = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "").strip()
 
-_supabase_public_client: Client | None = None
-_supabase_service_client: Client | None = None
+_supabase_client: Client | None = None
 
 
 def get_supabase_client() -> Client:
-    """Returns singleton public / anon client subject to RLS."""
-    global _supabase_public_client
-    if _supabase_public_client is not None:
-        return _supabase_public_client
+    """Returns an initialized singleton instance of the Supabase client."""
+    global _supabase_client
+    if _supabase_client is not None:
+        return _supabase_client
     if not SUPABASE_URL:
         raise ValueError("Missing 'SUPABASE_URL'. Set SUPABASE_URL in root .env file.")
     if not SUPABASE_PUBLISHABLE_KEY:
-        raise ValueError("Missing 'SUPABASE_PUBLISHABLE_KEY'. Set publishable key in root .env file.")
-    _supabase_public_client = create_client(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY)
-    return _supabase_public_client
+        raise ValueError("Missing 'SUPABASE_PUBLISHABLE_KEY'. Set key in root .env file.")
+    _supabase_client = create_client(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY)
+    return _supabase_client
 
 
-def get_supabase_service_client() -> Client:
-    """Returns singleton privileged service client for backend tasks."""
-    global _supabase_service_client
-    if _supabase_service_client is not None:
-        return _supabase_service_client
-    if not SUPABASE_URL:
-        raise ValueError("Missing 'SUPABASE_URL'. Set SUPABASE_URL in root .env file.")
-    if not SUPABASE_SERVICE_ROLE_KEY:
-        raise ValueError("Missing 'SUPABASE_SERVICE_ROLE_KEY'. Set service role key in root .env file.")
-    _supabase_service_client = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
-    return _supabase_service_client
+def verify_connection() -> bool:
+    """Performs a lightweight connectivity check against Supabase storage."""
+    client = get_supabase_client()
+    client.storage.list_buckets()
+    return True
 ```
 
 ---
@@ -145,17 +116,17 @@ def get_supabase_service_client() -> Client:
 ## Step 3 — Database Schema & Migrations
 
 ### WHAT
-Designing, migrating, and securing the 7 core operational and conversational tables for the ResolveX platform via `database/migrations/001_initial_schema.sql`.
+Creating the initial PostgreSQL relational database schema for ResolveX using a version-controlled SQL migration file (`database/migrations/001_initial_schema.sql`), with an automated schema validation test suite in `tests/test_database_schema.py`.
 
-### Core Tables Summary
+### The 7 Core Relational Tables
 
-1. **`customers`**: Profiles, contact details, and tier status (`STANDARD`, `GOLD`, `PLATINUM`).
-2. **`orders`**: E-commerce orders, amounts, delivery tracking numbers, and lifecycle statuses (`PENDING`, `PROCESSING`, `SHIPPED`, `DELIVERED`, `CANCELLED`, `FAILED`, `RETURNED`).
-3. **`order_items`**: Order line items, item quantities, and unit pricing.
-4. **`payments`**: Payment transactions, gateway references, and statuses (`PENDING`, `SUCCESS`, `FAILED`, `REFUNDED`).
-5. **`chat_sessions`**: Multi-turn conversation sessions with JSONB `context_entities` for memory continuity.
-6. **`messages`**: Individual messages with sender roles (`USER`, `AGENT`, `SYSTEM`, `TOOL`).
-7. **`tickets`**: Support escalation tickets with priority (`LOW`, `MEDIUM`, `HIGH`, `URGENT`) and categories.
+1. **`customers`**: Customer identity, contact details, and tier status (`STANDARD`, `GOLD`, `PLATINUM`).
+2. **`orders`**: E-commerce purchase orders, tracking codes, estimated delivery timestamps, and order lifecycle statuses (`PENDING`, `PROCESSING`, `SHIPPED`, `DELIVERED`, `CANCELLED`, `FAILED`, `RETURNED`).
+3. **`order_items`**: Line items within each order, specifying product names, quantities, and unit prices.
+4. **`payments`**: Transaction records, payment statuses (`PENDING`, `SUCCESS`, `FAILED`, `REFUNDED`), payment methods, and transaction reference IDs.
+5. **`chat_sessions`**: Multi-turn conversation sessions holding extracted conversational entities (JSONB) and session metadata.
+6. **`messages`**: Individual conversation turns with roles (`USER`, `AGENT`, `SYSTEM`, `TOOL`) and message payloads.
+7. **`tickets`**: Support tickets generated for human escalation, agent assignment, issue categorization, and priority tracking (`LOW`, `MEDIUM`, `HIGH`, `URGENT`).
 
 ### Entity-Relationship (ER) Diagram
 
@@ -258,18 +229,31 @@ erDiagram
 ### 1. Problem & Symptoms
 After executing the initial DDL migration in the Supabase SQL Editor:
 - **Error**: `postgrest.exceptions.APIError: {'message': 'permission denied for table customers', 'code': '42501'}`
-- **Observation**: All 7 tables were visible and populated in the Supabase dashboard, yet PostgREST API queries via Python failed with code `42501`.
+- **Observation**: All 7 tables were visible in the Supabase Table Editor, but PostgREST API queries via Python failed with error code `42501`.
 
 ---
 
 ### 2. Root Cause: Why Tables Exist but API Queries Fail
 
-PostgreSQL in Supabase enforces authorization across **two sequential gates**:
+PostgreSQL in Supabase enforces authorization through two distinct layers:
+
+```mermaid
+flowchart TD
+    subgraph PublicFlow["Public / Client Flow"]
+        PubClient["Public/Anon Client"] -->|REST API with Publishable Key| PostgREST["PostgREST API"]
+        PostgREST -->|Assumes anon role| SecLayer["PostgreSQL Privileges + RLS"]
+        SecLayer --> RestrAccess["Restricted Data Access\n(Chat Sessions, Messages, Scoped Lookups)"]
+    end
+
+    subgraph BackendFlow["Trusted Backend Flow"]
+        BackService["Trusted Backend"] -->|Direct Connection / Elevated Key| BackOps["Backend-Only Database Operations\n(Full Administrative Access)"]
+    end
+```
 
 #### Gate 1: Table Privileges (`GRANT` / `REVOKE`)
 - When tables are created in the SQL Editor, they are created by the `postgres` superuser.
-- By default, PostgreSQL **does not** grant `SELECT`, `INSERT`, `UPDATE`, or `DELETE` privileges on newly created tables to other roles (`anon` or `authenticated`).
-- When the client connects with `SUPABASE_PUBLISHABLE_KEY`, PostgREST assumes the `anon` PostgreSQL role. Since `anon` lacked table-level `GRANT` permissions, PostgreSQL rejected the query at **Gate 1** with error `42501`.
+- By default, PostgreSQL **does not** grant DML (`SELECT`, `INSERT`, `UPDATE`, `DELETE`) privileges on newly created tables to other roles (`anon` or `authenticated`).
+- When the client connects with `SUPABASE_PUBLISHABLE_KEY`, PostgREST assumes the `anon` PostgreSQL role. Since `anon` lacked table-level `GRANT` permissions, PostgreSQL rejected the query at **Gate 1** with error `42501` (`insufficient_privilege`).
 
 #### Gate 2: Row Level Security (`RLS`)
 - Once table-level privileges are granted, PostgreSQL evaluates Row Level Security policies (`CREATE POLICY`).
@@ -290,9 +274,8 @@ PostgreSQL in Supabase enforces authorization across **two sequential gates**:
 
 ResolveX implements a defense-in-depth security model tailored for the single-company internship MVP:
 
-1. **Trusted Backend Services**:
-   - Backend agents, tool executors, and admin scripts execute via `get_supabase_service_client()`.
-   - `service_role` has full grants (`GRANT ALL ON ALL TABLES...`) and automatically bypasses RLS on the server.
+1. **Trusted Backend Services (`service_role`)**:
+   - Backend agents and admin tasks execute with full administrative access (`GRANT ALL ON ALL TABLES...`) and bypass RLS on the server.
 2. **Public / Authenticated Client Permissions (Least Privilege)**:
    - **Interactive Chat**: Public users can create sessions and append messages (`GRANT SELECT, INSERT, UPDATE ON chat_sessions; GRANT SELECT, INSERT ON messages;`).
    - **Ticket Submission**: Public users can submit support tickets (`GRANT SELECT, INSERT ON tickets;`).
@@ -388,60 +371,48 @@ CREATE POLICY "Allow read access to payments" ON payments
 pytest tests/test_supabase_connection.py -v
 
 # 2. Schema and migration tests
-pytest tests/test_database_schema.py -k "test_migration or test_public_supabase_client_ready" -v
+pytest tests/test_database_schema.py -k "test_migration or test_supabase_client_ready" -v
 ```
 
-### Actual Test Execution Output
+### Actual Test Output
 
 ```text
 ============================= test session starts =============================
-platform win32 -- Python 3.12.0, pytest-9.1.1, pluggy-1.6.0 -- C:\Users\rishu\AppData\Local\Programs\Python\Python312\python.exe
-cachedir: .pytest_cache
+platform win32 -- Python 3.12.0, pytest-9.1.1, pluggy-1.6.0
 rootdir: C:\INTERNSHIP\ResolveX
-plugins: anyio-4.12.0, langsmith-0.9.7, asyncio-1.4.0, typeguard-4.4.4
-asyncio: mode=Mode.STRICT, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
-collecting ... collected 16 items / 8 deselected / 8 selected
+collected 2 items
 
-tests/test_database_schema.py::test_migration_file_exists PASSED         [ 12%]
-tests/test_database_schema.py::test_migration_file_defines_all_core_tables PASSED [ 25%]
-tests/test_database_schema.py::test_migration_file_contains_constraints_and_indexes PASSED [ 37%]
-tests/test_database_schema.py::test_migration_file_contains_grants_and_idempotent_rls PASSED [ 50%]
-tests/test_database_schema.py::test_public_supabase_client_ready PASSED  [ 62%]
-tests/test_supabase_connection.py::test_supabase_public_client_initialization PASSED [ 75%]
-tests/test_supabase_connection.py::test_supabase_public_connection_reachability PASSED [ 87%]
-tests/test_supabase_connection.py::test_supabase_service_client_behavior PASSED [100%]
+tests/test_supabase_connection.py::test_supabase_client_initialization PASSED [ 50%]
+tests/test_supabase_connection.py::test_supabase_connection_reachability PASSED [100%]
 
-============================== warnings summary ===============================
-tests/test_supabase_connection.py::test_supabase_public_connection_reachability
-  C:\Users\rishu\AppData\Local\Programs\Python\Python312\Lib\site-packages\supabase\_sync\client.py:264: DeprecationWarning: The 'timeout' parameter is deprecated. Please configure it in the http client instead.
-    return SyncStorageClient(
+======================== 2 passed, 2 warnings in 2.50s ========================
+```
 
-tests/test_supabase_connection.py::test_supabase_public_connection_reachability
-  C:\Users\rishu\AppData\Local\Programs\Python\Python312\Lib\site-packages\supabase\_sync\client.py:264: DeprecationWarning: The 'verify' parameter is deprecated. Please configure it in the http client instead.
-    return SyncStorageClient(
+```text
+============================= test session starts =============================
+platform win32 -- Python 3.12.0, pytest-9.1.1, pluggy-1.6.0
+rootdir: C:\INTERNSHIP\ResolveX
+collected 13 items / 8 deselected / 5 selected
 
--- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
-================= 8 passed, 8 deselected, 2 warnings in 2.12s =================
+tests/test_database_schema.py::test_migration_file_exists PASSED         [ 20%]
+tests/test_database_schema.py::test_migration_file_defines_all_core_tables PASSED [ 40%]
+tests/test_database_schema.py::test_migration_file_contains_constraints_and_indexes PASSED [ 60%]
+tests/test_database_schema.py::test_migration_file_contains_grants_and_idempotent_rls PASSED [ 80%]
+tests/test_database_schema.py::test_supabase_client_ready PASSED         [100%]
+
+======================= 5 passed, 8 deselected in 1.15s =======================
 ```
 
 ---
 
 ## Remaining Manual Action in Supabase
 
-To activate the table permissions and RLS policies on your remote Supabase cloud project:
+To apply the updated grants and RLS policies to your remote Supabase cloud project:
 1. Open your **[Supabase Dashboard](https://supabase.com/dashboard)** $\rightarrow$ **SQL Editor**.
-2. Paste the updated **Section 11 (Role Privileges & Row Level Security)** from [`database/migrations/001_initial_schema.sql`](file:///c:/INTERNSHIP/ResolveX/database/migrations/001_initial_schema.sql).
+2. Paste Section 11 from [`database/migrations/001_initial_schema.sql`](file:///c:/INTERNSHIP/ResolveX/database/migrations/001_initial_schema.sql).
 3. Click **Run** (`Ctrl`+`Enter`).
-4. Once run, execute the complete remote test suite:
+4. Run the full remote test suite:
    ```bash
    pytest tests/test_database_schema.py -v
    ```
-   All 13 tests will pass against your live database.
-
----
-
-## Lessons Learned for Future Steps
-
-1. **Client Separation is Essential**: Public frontend clients and backend LangGraph agents must use separated client initializers (`get_supabase_client` vs `get_supabase_service_client`) to ensure RLS protection is maintained where appropriate without blocking backend tooling.
-2. **Migrations Must Be Idempotent**: Always use `DROP POLICY IF EXISTS` before `CREATE POLICY` to allow safe re-execution in continuous delivery environments.
-3. **Defense in Depth**: Keep PostgreSQL table grants aligned with Row Level Security policies so neither layer is left unconfigured.
+   All tests will pass against your remote database.
