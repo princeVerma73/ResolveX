@@ -2,12 +2,16 @@
 
 Verifies that:
 1. The local migration file 'database/migrations/001_initial_schema.sql' exists and
-   defines all 7 core tables, relationships, constraints, indexes, and triggers.
-2. The Supabase client initializes properly.
+   defines all 7 core tables, relationships, constraints, indexes, triggers,
+   role grants, and idempotent RLS policies.
+2. The public Supabase client initializes properly with SUPABASE_PUBLISHABLE_KEY.
 3. The 7 core tables (customers, orders, order_items, payments, chat_sessions, messages, tickets)
-   are accessible and queryable via the Supabase REST/PostgREST API.
+   are accessible and queryable via the PostgREST API.
+4. An isolated conversational lifecycle (chat_sessions + messages) can be created and queried.
+5. Privileged operations via get_supabase_service_client() function when configured.
 """
 
+import os
 import sys
 import uuid
 from pathlib import Path
@@ -17,7 +21,10 @@ ROOT_DIR = Path(__file__).resolve().parent.parent
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
-from Backend.db.supabase_client import get_supabase_client
+from Backend.db.supabase_client import (
+    get_supabase_client,
+    get_supabase_service_client,
+)
 
 MIGRATION_FILE = ROOT_DIR / "database" / "migrations" / "001_initial_schema.sql"
 
@@ -33,7 +40,7 @@ CORE_TABLES = [
 
 
 # =============================================================================
-# 1. Local SQL Migration File Structure Tests
+# 1. Local SQL Migration File Structure & Security Validation
 # =============================================================================
 
 def test_migration_file_exists():
@@ -55,36 +62,56 @@ def test_migration_file_defines_all_core_tables():
 def test_migration_file_contains_constraints_and_indexes():
     """Verify that foreign keys, status checks, indexes, and triggers are defined."""
     content = MIGRATION_FILE.read_text(encoding="utf-8").lower()
-    
-    # Check foreign keys
+
+    # Foreign key references
     assert "references customers(customer_id)" in content
     assert "references orders(order_id)" in content
     assert "references chat_sessions(session_id)" in content
-    
-    # Check constraints and checks
+
+    # Check constraints
     assert "check (tier in" in content
     assert "check (status in" in content
     assert "check (sender_type in" in content
     assert "check (priority in" in content
-    
-    # Check indexes and triggers
+
+    # Performance indexes and triggers
     assert "create index if not exists idx_orders_customer_id" in content
     assert "create index if not exists idx_tickets_status" in content
     assert "update_updated_at_column" in content
 
 
+def test_migration_file_contains_grants_and_idempotent_rls():
+    """Verify that schema grants and idempotent RLS policies are properly declared."""
+    content = MIGRATION_FILE.read_text(encoding="utf-8").lower()
+
+    # Role grants
+    assert "grant usage on schema public to anon, authenticated, service_role" in content
+    assert "grant all on all tables in schema public to service_role" in content
+
+    # RLS enablement
+    assert "enable row level security" in content
+
+    # Idempotent policies
+    assert "drop policy if exists" in content
+    assert "create policy" in content
+
+
 # =============================================================================
-# 2. Remote Supabase Database Connectivity & Schema Tests
+# 2. Client Initialization Tests
 # =============================================================================
 
-def test_supabase_client_ready():
-    """Verify Supabase client initializes properly."""
+def test_public_supabase_client_ready():
+    """Verify public Supabase client initializes properly."""
     client = get_supabase_client()
     assert client is not None
 
 
+# =============================================================================
+# 3. Remote Supabase Table Query Tests
+# =============================================================================
+
 @pytest.mark.parametrize("table_name", CORE_TABLES)
-def test_remote_table_exists_and_queryable(table_name: str):
+def test_remote_table_accessible(table_name: str):
     """Verify each core table exists and accepts queries via Supabase REST API."""
     client = get_supabase_client()
     try:
@@ -95,49 +122,70 @@ def test_remote_table_exists_and_queryable(table_name: str):
     except Exception as exc:
         pytest.fail(
             f"Failed to query table '{table_name}'. "
-            f"If you have not run the migration yet, please apply 'database/migrations/001_initial_schema.sql' "
-            f"in your Supabase SQL Editor. Error: {exc}"
+            f"If you have updated the migration with grants and RLS, please run the SQL from "
+            f"'database/migrations/001_initial_schema.sql' in your Supabase SQL Editor. Error: {exc}"
         )
 
 
-def test_remote_customer_lifecycle_integrity():
-    """Tests an isolated customer record lifecycle (insert -> query -> clean up)."""
+def test_remote_chat_session_lifecycle():
+    """Tests an isolated public chat session and message insertion and cleanup."""
     client = get_supabase_client()
-    test_cust_id = f"TEST-CUST-{uuid.uuid4().hex[:8]}"
-    test_email = f"test_{uuid.uuid4().hex[:8]}@example.com"
+    test_session_id = f"TEST-SES-{uuid.uuid4().hex[:8]}"
+    test_msg_id = f"TEST-MSG-{uuid.uuid4().hex[:8]}"
 
     try:
-        # Insert
-        insert_res = (
-            client.table("customers")
+        # 1. Insert chat session
+        session_res = (
+            client.table("chat_sessions")
             .insert(
                 {
-                    "customer_id": test_cust_id,
-                    "full_name": "Test Lifecycle User",
-                    "email": test_email,
-                    "phone": "+1-555-0199",
-                    "tier": "STANDARD",
+                    "session_id": test_session_id,
+                    "channel": "WEB_CHAT",
+                    "status": "ACTIVE",
+                    "context_entities": {"topic": "order_inquiry"},
                 }
             )
             .execute()
         )
-        assert insert_res.data is not None
-        assert len(insert_res.data) > 0
-        assert insert_res.data[0]["customer_id"] == test_cust_id
+        assert session_res.data is not None
+        assert len(session_res.data) > 0
+        assert session_res.data[0]["session_id"] == test_session_id
 
-        # Query
+        # 2. Insert message into session
+        msg_res = (
+            client.table("messages")
+            .insert(
+                {
+                    "message_id": test_msg_id,
+                    "session_id": test_session_id,
+                    "sender_type": "USER",
+                    "content": "Hello, I want to check my order status.",
+                }
+            )
+            .execute()
+        )
+        assert msg_res.data is not None
+        assert len(msg_res.data) > 0
+
+        # 3. Query message
         query_res = (
-            client.table("customers")
+            client.table("messages")
             .select("*")
-            .eq("customer_id", test_cust_id)
+            .eq("session_id", test_session_id)
             .execute()
         )
         assert len(query_res.data) == 1
-        assert query_res.data[0]["email"] == test_email
+        assert query_res.data[0]["message_id"] == test_msg_id
 
     finally:
         # Cleanup
+        has_service_key = bool(os.getenv("SUPABASE_SERVICE_ROLE_KEY", "").strip())
+        cleanup_client = get_supabase_service_client() if has_service_key else client
         try:
-            client.table("customers").delete().eq("customer_id", test_cust_id).execute()
+            cleanup_client.table("messages").delete().eq("message_id", test_msg_id).execute()
+        except Exception:
+            pass
+        try:
+            cleanup_client.table("chat_sessions").delete().eq("session_id", test_session_id).execute()
         except Exception:
             pass

@@ -504,3 +504,121 @@ tests/test_database_schema.py::test_supabase_client_ready PASSED         [100%]
 | **`23505: unique_violation`** | Duplicate value inserted into a column marked `UNIQUE` (such as `customers.email`). | Ensure customer emails are unique or perform an upsert query. |
 | **`Permission Denied / RLS Block`** | Row Level Security (RLS) enabled without policies allowing anon/service role queries. | In development, ensure either RLS policies exist for table operations or appropriate service keys are configured for administrative scripts. |
 
+---
+
+### Step 3 Deep-Dive: Debugging & Supabase Permissions / RLS Architecture
+
+#### 1. Problem & Symptoms
+When executing the test suite against the live Supabase instance after creating the tables via SQL Editor:
+- **Test Results**: 4 tests passed (local file assertions & client initialization), 8 tests failed.
+- **Error Message**: `postgrest.exceptions.APIError: {'message': 'permission denied for table customers', 'code': '42501', 'hint': 'Grant the required privileges to the current role with: GRANT SELECT ON public.customers TO anon;', 'details': None}`
+- **PostgreSQL Error Code**: `42501` (`insufficient_privilege`).
+- **Observation**: All 7 tables were visible in the Supabase Dashboard Table Editor, but all PostgREST API queries from the Python client failed.
+
+---
+
+#### 2. Root Cause Analysis: The Two-Gate Security Model
+
+Supabase uses PostgREST as an HTTP REST interface over PostgreSQL. Understanding how requests travel through Supabase security requires understanding two distinct authorization gates:
+
+```mermaid
+flowchart TD
+    Client["Supabase Client (Python / Tests)"] -->|Requests via REST API with Key| PostgREST["PostgREST Gateway"]
+    
+    subgraph SupabasePG["PostgreSQL Database Engine"]
+        PostgREST -->|Maps Key to Role| Role["Active Role: anon / authenticated"]
+        
+        subgraph Gate1["Gate 1: PostgreSQL Table Privileges (GRANT)"]
+            Role --> CheckGrant{"Has GRANT SELECT / INSERT on table?"}
+            CheckGrant -->|❌ NO (Raw DDL Default)| Err42501["Error 42501: permission denied"]
+            CheckGrant -->| Yes (GRANT ALL ...)| CheckRLS{"Is RLS Enabled?"}
+        end
+
+        subgraph Gate2["Gate 2: Row Level Security (RLS) Policies"]
+            CheckRLS -->|Disabled| DirectAccess[Table Access Allowed]
+            CheckRLS -->|Enabled| EvalPolicy{"Evaluate Policies (USING / WITH CHECK)"}
+            EvalPolicy -->|Match (true)| DirectAccess
+            EvalPolicy -->|No Policy Match| Blocked["0 rows returned / access denied"]
+        end
+
+        DirectAccess --> Tables[("Target Relational Table\n(customers, orders, tickets...)")]
+    end
+```
+
+##### A. Supabase Predefined Roles
+PostgreSQL uses roles to enforce security boundaries. Supabase provisions the following core roles:
+1. **`postgres`**: The superuser/table owner. When you execute scripts in the Supabase SQL Editor, you run as `postgres`.
+2. **`anon`**: The role used for unauthenticated or public client requests (authenticated using `SUPABASE_PUBLISHABLE_KEY` or `SUPABASE_ANON_KEY`).
+3. **`authenticated`**: The role assigned to logged-in users who present a valid Supabase Auth JWT.
+4. **`service_role`**: The elevated administrative role used by backend servers (authenticated using `SUPABASE_SERVICE_ROLE_KEY`), which completely bypasses RLS.
+
+##### B. Gate 1 vs Gate 2 Explained
+- **Gate 1 — Table Privileges (`GRANT` / `REVOKE`)**: Standard SQL object permissions. If the active role (`anon`) has no `GRANT SELECT` on `public.customers`, PostgreSQL aborts immediately with error `42501`.
+- **Gate 2 — Row Level Security (`RLS`)**: Fine-grained row filtering. Even if `anon` has `GRANT SELECT`, if RLS is enabled on the table and no `CREATE POLICY` matches the query condition, PostgreSQL returns an empty set or rejects row insertion.
+
+##### C. Why Tables Existed but Queries Failed
+When tables were created via raw DDL (`CREATE TABLE ...`) in the SQL Editor under the `postgres` user, PostgreSQL created them owned by `postgres` **without** automatically granting DML (`SELECT`, `INSERT`, `UPDATE`, `DELETE`) privileges to the `anon` or `authenticated` roles. When PostgREST executed queries on behalf of the client's publishable key (acting as role `anon`), Postgres rejected the query at **Gate 1**.
+
+---
+
+#### 3. Selected Fix & Security Strategy
+
+To resolve this cleanly without compromising security or hardcoding secrets:
+
+1. **Explicit Table Grants in Migration**:
+   Grant schema usage and table DML privileges to `anon`, `authenticated`, and `service_role`:
+   ```sql
+   GRANT USAGE ON SCHEMA public TO anon, authenticated, service_role;
+   GRANT ALL ON ALL TABLES IN SCHEMA public TO anon, authenticated, service_role;
+   GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO anon, authenticated, service_role;
+   GRANT ALL ON ALL ROUTINES IN SCHEMA public TO anon, authenticated, service_role;
+
+   ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO anon, authenticated, service_role;
+   ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO anon, authenticated, service_role;
+   ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON ROUTINES TO anon, authenticated, service_role;
+   ```
+
+2. **Enable Row Level Security (RLS) with Version-Controlled Policies**:
+   Keep RLS enabled on all 7 tables to protect database tables from unmanaged public access:
+   ```sql
+   ALTER TABLE customers ENABLE ROW LEVEL SECURITY;
+   ALTER TABLE orders ENABLE ROW LEVEL SECURITY;
+   ALTER TABLE order_items ENABLE ROW LEVEL SECURITY;
+   ALTER TABLE payments ENABLE ROW LEVEL SECURITY;
+   ALTER TABLE chat_sessions ENABLE ROW LEVEL SECURITY;
+   ALTER TABLE messages ENABLE ROW LEVEL SECURITY;
+   ALTER TABLE tickets ENABLE ROW LEVEL SECURITY;
+
+   CREATE POLICY "Allow access on customers for MVP" ON customers FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
+   CREATE POLICY "Allow access on orders for MVP" ON orders FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
+   CREATE POLICY "Allow access on order_items for MVP" ON order_items FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
+   CREATE POLICY "Allow access on payments for MVP" ON payments FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
+   CREATE POLICY "Allow access on chat_sessions for MVP" ON chat_sessions FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
+   CREATE POLICY "Allow access on messages for MVP" ON messages FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
+   CREATE POLICY "Allow access on tickets for MVP" ON tickets FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
+   ```
+
+3. **Backend Service Role Key Support**:
+   Updated `Backend/db/supabase_client.py` to optionally load `SUPABASE_SERVICE_ROLE_KEY` if provided in `.env`, falling back to `SUPABASE_PUBLISHABLE_KEY` / `SUPABASE_ANON_KEY`.
+
+---
+
+#### 4. Applying the Fix in Supabase
+
+1. Open **[Supabase Dashboard](https://supabase.com/dashboard)** $\rightarrow$ **SQL Editor**.
+2. Copy Section 11 from [`database/migrations/001_initial_schema.sql`](file:///c:/INTERNSHIP/ResolveX/database/migrations/001_initial_schema.sql) (or the entire file) and paste it into the SQL editor.
+3. Click **Run**.
+4. Run the test suite:
+   ```bash
+   pytest tests/test_database_schema.py -v
+   ```
+
+---
+
+#### 5. Lessons Learned & Key Takeaways
+
+1. **PostgreSQL Security is Layered**: An API key does not bypass PostgreSQL role permissions. PostgREST assumes the database role mapped to that key (`anon`, `authenticated`, or `service_role`).
+2. **DDL Scripts Must Include Grants**: Creating a table in PostgreSQL does not grant permissions to other non-owner roles by default. Version-controlled migration files must explicitly define `GRANT` and `RLS` policies.
+3. **Never Disable RLS in Production**: Disabling RLS removes Gate 2 completely. The standard pattern is `ENABLE RLS` + explicit scoped policies.
+
+

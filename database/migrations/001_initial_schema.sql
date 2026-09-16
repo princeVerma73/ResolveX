@@ -177,3 +177,90 @@ CREATE TRIGGER trg_tickets_updated_at
     BEFORE UPDATE ON tickets
     FOR EACH ROW
     EXECUTE FUNCTION update_updated_at_column();
+
+-- =============================================================================
+-- 11. Role Privileges & Row Level Security (RLS)
+-- =============================================================================
+
+-- Schema usage for all Supabase API roles
+GRANT USAGE ON SCHEMA public TO anon, authenticated, service_role;
+
+-- Full administrative access for trusted backend service_role
+GRANT ALL ON ALL TABLES IN SCHEMA public TO service_role;
+GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO service_role;
+GRANT ALL ON ALL ROUTINES IN SCHEMA public TO service_role;
+
+-- Scoped DML privileges for public / authenticated client roles:
+-- 1) Interactive chat & messaging:
+GRANT SELECT, INSERT, UPDATE ON TABLE chat_sessions TO anon, authenticated;
+GRANT SELECT, INSERT ON TABLE messages TO anon, authenticated;
+
+-- 2) Support ticket submission:
+GRANT SELECT, INSERT ON TABLE tickets TO anon, authenticated;
+
+-- 3) Read-only lookup access on operational tables (mutations handled by backend service tools):
+GRANT SELECT ON TABLE customers TO anon, authenticated;
+GRANT SELECT ON TABLE orders TO anon, authenticated;
+GRANT SELECT ON TABLE order_items TO anon, authenticated;
+GRANT SELECT ON TABLE payments TO anon, authenticated;
+
+-- Enable Row Level Security (RLS) on all 7 core tables
+ALTER TABLE customers ENABLE ROW LEVEL SECURITY;
+ALTER TABLE orders ENABLE ROW LEVEL SECURITY;
+ALTER TABLE order_items ENABLE ROW LEVEL SECURITY;
+ALTER TABLE payments ENABLE ROW LEVEL SECURITY;
+ALTER TABLE chat_sessions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE messages ENABLE ROW LEVEL SECURITY;
+ALTER TABLE tickets ENABLE ROW LEVEL SECURITY;
+
+-- -----------------------------------------------------------------------------
+-- Idempotent RLS Policies (Safely re-runnable)
+-- -----------------------------------------------------------------------------
+
+-- chat_sessions: Public/auth clients can create, read, and update sessions
+DROP POLICY IF EXISTS "Allow anon and auth to create chat sessions" ON chat_sessions;
+CREATE POLICY "Allow anon and auth to create chat sessions" ON chat_sessions
+    FOR INSERT TO anon, authenticated WITH CHECK (true);
+
+DROP POLICY IF EXISTS "Allow anon and auth to read chat sessions" ON chat_sessions;
+CREATE POLICY "Allow anon and auth to read chat sessions" ON chat_sessions
+    FOR SELECT TO anon, authenticated USING (true);
+
+DROP POLICY IF EXISTS "Allow anon and auth to update chat sessions" ON chat_sessions;
+CREATE POLICY "Allow anon and auth to update chat sessions" ON chat_sessions
+    FOR UPDATE TO anon, authenticated USING (true) WITH CHECK (true);
+
+-- messages: Public/auth clients can append and read messages in sessions
+DROP POLICY IF EXISTS "Allow anon and auth to insert messages" ON messages;
+CREATE POLICY "Allow anon and auth to insert messages" ON messages
+    FOR INSERT TO anon, authenticated WITH CHECK (true);
+
+DROP POLICY IF EXISTS "Allow anon and auth to read messages" ON messages;
+CREATE POLICY "Allow anon and auth to read messages" ON messages
+    FOR SELECT TO anon, authenticated USING (true);
+
+-- tickets: Public/auth clients can submit support tickets and query tickets
+DROP POLICY IF EXISTS "Allow anon and auth to create tickets" ON tickets;
+CREATE POLICY "Allow anon and auth to create tickets" ON tickets
+    FOR INSERT TO anon, authenticated WITH CHECK (true);
+
+DROP POLICY IF EXISTS "Allow anon and auth to read tickets" ON tickets;
+CREATE POLICY "Allow anon and auth to read tickets" ON tickets
+    FOR SELECT TO anon, authenticated USING (true);
+
+-- customers, orders, order_items, payments: Read-only access for client lookups
+DROP POLICY IF EXISTS "Allow read access to customers" ON customers;
+CREATE POLICY "Allow read access to customers" ON customers
+    FOR SELECT TO anon, authenticated USING (true);
+
+DROP POLICY IF EXISTS "Allow read access to orders" ON orders;
+CREATE POLICY "Allow read access to orders" ON orders
+    FOR SELECT TO anon, authenticated USING (true);
+
+DROP POLICY IF EXISTS "Allow read access to order_items" ON order_items;
+CREATE POLICY "Allow read access to order_items" ON order_items
+    FOR SELECT TO anon, authenticated USING (true);
+
+DROP POLICY IF EXISTS "Allow read access to payments" ON payments;
+CREATE POLICY "Allow read access to payments" ON payments
+    FOR SELECT TO anon, authenticated USING (true);
