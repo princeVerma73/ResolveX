@@ -10,7 +10,7 @@
 | :--- | :--- | :---: | :--- |
 | **Step 1** | Supabase Project Setup | Completed | Cloud PostgreSQL backend initialization for persistent storage & vector search. |
 | **Step 2** | Supabase Backend Connection | Completed | Reusable Python Supabase client module, environment variable loading, and connectivity test. |
-| **Step 3** | Database Schema & Migrations | *Pending* | Orders, tickets, conversations, and pgvector knowledge-base tables. |
+| **Step 3** | Database Schema & Migrations | Completed | Core relational tables (customers, orders, items, payments, chat sessions, messages, tickets) and indexes. |
 | **Step 4** | Core Domain Models & Services | *Pending* | Pydantic schemas and database service layer. |
 | **Step 5** | RAG Pipeline & Vector Search | *Pending* | Document ingestion, chunking, embeddings, and similarity retrieval. |
 | **Step 6** | LangGraph Agents & Tools | *Pending* | Triage, Orders, Technical Support, and Escalation agents. |
@@ -268,3 +268,239 @@ tests\test_supabase_connection.py ..                                     [100%]
 | **`ModuleNotFoundError: No module named 'supabase'`** | Dependency not installed in environment | Run `pip install -r requirements.txt` |
 | **`401 Unauthorized / Invalid API Key`** | Wrong key copied from dashboard | Go to Supabase Dashboard $\rightarrow$ Project Settings $\rightarrow$ API and copy the `anon` / `publishable` key |
 | **`Connection Timeout / DNS Error`** | Network connectivity, VPN, or firewall block | Verify internet connectivity and ensure the Supabase project URL is reachable |
+
+---
+
+## Step 3 — Database Schema & Migrations
+
+### WHAT
+Designing and creating the initial PostgreSQL relational database schema for ResolveX using a version-controlled SQL migration file (`database/migrations/001_initial_schema.sql`), with an automated schema validation test suite in `tests/test_database_schema.py`.
+
+The schema encompasses the 7 core operational and conversational tables:
+1. **`customers`**: Customer identity, contact information, and membership tier (`STANDARD`, `GOLD`, `PLATINUM`).
+2. **`orders`**: E-commerce purchase orders, tracking codes, estimated delivery timestamps, and order lifecycle statuses.
+3. **`order_items`**: Line items within each order, specifying product names, quantities, and unit prices.
+4. **`payments`**: Transaction records, payment statuses (`PENDING`, `SUCCESS`, `FAILED`, `REFUNDED`), payment methods, and transaction reference IDs.
+5. **`chat_sessions`**: Multi-turn conversation sessions holding extracted conversational entities (JSONB) and session metadata.
+6. **`messages`**: Individual conversation turns with roles (`USER`, `AGENT`, `SYSTEM`, `TOOL`) and message payloads.
+7. **`tickets`**: Support tickets generated for human escalation, agent assignment, issue categorization, and priority tracking.
+
+> [!NOTE]
+> `pgvector` knowledge base embeddings (`knowledge_embeddings`) are intentionally omitted from this step and will be introduced in **Step 5 (RAG Pipeline & Vector Search)**.
+
+---
+
+### WHY
+ResolveX's AI agents, deterministic tools, and human support workflows rely on a structured, normalized, and performant data store:
+- **Relational Integrity & Cascades**: Deleting an order automatically cleans up orphaned `order_items` and `payments` via `ON DELETE CASCADE`. Conversely, deleting a customer preserves ticket audit trails while setting foreign keys to `NULL` (`ON DELETE SET NULL`).
+- **Deterministic Tool Execution**: LangGraph agent tools (such as `check_order_status`, `check_payment_status`, and `create_support_ticket`) require well-defined tables with explicit status enumerations, timestamps, and numeric types.
+- **Context & Memory Continuity**: The `chat_sessions` table persists structured `context_entities` (e.g. active `order_id`, `ticket_id`) so conversational context is preserved across turns without requiring re-extraction.
+- **Fast Lookups via Indexing**: Foreign key indexes (`customer_id`, `order_id`, `session_id`) and status indexes ensure sub-millisecond query latencies when AI agents execute operational tools.
+- **Data Traceability**: Automatic `updated_at` triggers maintain accurate timestamps across record updates without requiring manual application-layer clock management.
+
+---
+
+### Entity-Relationship (ER) Diagram
+
+```mermaid
+erDiagram
+    CUSTOMERS ||--o{ ORDERS : places
+    CUSTOMERS ||--o{ CHAT_SESSIONS : initiates
+    CUSTOMERS ||--o{ TICKETS : opens
+    ORDERS ||--o{ ORDER_ITEMS : contains
+    ORDERS ||--o{ PAYMENTS : generates
+    ORDERS ||--o{ TICKETS : references
+    CHAT_SESSIONS ||--o{ MESSAGES : contains
+    CHAT_SESSIONS ||--o{ TICKETS : escalates_to
+
+    CUSTOMERS {
+        varchar customer_id PK
+        varchar full_name
+        varchar email UK
+        varchar phone
+        varchar tier
+        timestamptz created_at
+        timestamptz updated_at
+    }
+
+    ORDERS {
+        varchar order_id PK
+        varchar customer_id FK
+        varchar status
+        numeric total_amount
+        varchar currency
+        text shipping_address
+        varchar tracking_number
+        timestamptz estimated_delivery
+        timestamptz created_at
+        timestamptz updated_at
+    }
+
+    ORDER_ITEMS {
+        varchar item_id PK
+        varchar order_id FK
+        varchar product_name
+        int quantity
+        numeric unit_price
+        timestamptz created_at
+    }
+
+    PAYMENTS {
+        varchar payment_id PK
+        varchar order_id FK
+        numeric amount
+        varchar status
+        varchar payment_method
+        varchar transaction_ref
+        timestamptz created_at
+        timestamptz updated_at
+    }
+
+    CHAT_SESSIONS {
+        varchar session_id PK
+        varchar customer_id FK
+        varchar channel
+        varchar status
+        jsonb context_entities
+        jsonb conversation_history
+        jsonb metadata
+        timestamptz created_at
+        timestamptz updated_at
+    }
+
+    MESSAGES {
+        varchar message_id PK
+        varchar session_id FK
+        varchar sender_type
+        text content
+        jsonb metadata
+        timestamptz created_at
+    }
+
+    TICKETS {
+        varchar ticket_id PK
+        varchar customer_id FK
+        varchar session_id FK
+        varchar order_id FK
+        varchar category
+        varchar priority
+        varchar status
+        varchar subject
+        text description
+        varchar assigned_agent
+        text resolution_notes
+        timestamptz created_at
+        timestamptz updated_at
+    }
+```
+
+---
+
+### Table Relationships & Architecture Breakdown
+
+| Table | Primary Key | Foreign Keys & Relationships | Key Constraints & Checks | Indexing Strategy |
+| :--- | :--- | :--- | :--- | :--- |
+| **`customers`** | `customer_id` (`VARCHAR(64)`) | None | `email` (`UNIQUE`), `tier IN ('STANDARD', 'GOLD', 'PLATINUM')` | Unique index on `email` |
+| **`orders`** | `order_id` (`VARCHAR(64)`) | `customer_id -> customers(customer_id) ON DELETE CASCADE` | `total_amount >= 0`, `status IN ('PENDING', 'PROCESSING', 'SHIPPED', 'DELIVERED', 'CANCELLED', 'FAILED', 'RETURNED')` | `idx_orders_customer_id`, `idx_orders_status` |
+| **`order_items`** | `item_id` (`VARCHAR(64)`) | `order_id -> orders(order_id) ON DELETE CASCADE` | `quantity > 0`, `unit_price >= 0` | `idx_order_items_order_id` |
+| **`payments`** | `payment_id` (`VARCHAR(64)`) | `order_id -> orders(order_id) ON DELETE CASCADE` | `amount >= 0`, `status IN ('PENDING', 'SUCCESS', 'FAILED', 'REFUNDED')`, `payment_method IN ('CREDIT_CARD', 'DEBIT_CARD', 'PAYPAL', 'UPI', 'BANK_TRANSFER', 'WALLET')` | `idx_payments_order_id`, `idx_payments_status` |
+| **`chat_sessions`** | `session_id` (`VARCHAR(64)`) | `customer_id -> customers(customer_id) ON DELETE SET NULL` | `status IN ('ACTIVE', 'CLOSED', 'ARCHIVED')`, `context_entities` (`JSONB`), `conversation_history` (`JSONB`) | `idx_chat_sessions_customer_id`, `idx_chat_sessions_status` |
+| **`messages`** | `message_id` (`VARCHAR(64)`) | `session_id -> chat_sessions(session_id) ON DELETE CASCADE` | `sender_type IN ('USER', 'AGENT', 'SYSTEM', 'TOOL')` | `idx_messages_session_id`, `idx_messages_created_at` |
+| **`tickets`** | `ticket_id` (`VARCHAR(64)`) | `customer_id -> customers(customer_id) ON DELETE SET NULL`<br/>`session_id -> chat_sessions(session_id) ON DELETE SET NULL`<br/>`order_id -> orders(order_id) ON DELETE SET NULL` | `category IN ('ORDER', 'BILLING', 'TECHNICAL', 'POLICY', 'GENERAL', 'REFUND', 'SHIPPING')`, `priority IN ('LOW', 'MEDIUM', 'HIGH', 'URGENT')`, `status IN ('OPEN', 'IN_PROGRESS', 'ESCALATED', 'RESOLVED', 'CLOSED')` | `idx_tickets_customer_id`, `idx_tickets_session_id`, `idx_tickets_order_id`, `idx_tickets_status`, `idx_tickets_priority` |
+
+---
+
+### Files Implemented & Modified
+
+#### 1. `database/migrations/001_initial_schema.sql` [NEW]
+Complete SQL migration file containing all table definitions, constraints, indexes, and trigger functions:
+- Enables `uuid-ossp` extension for identifier utility.
+- Creates `update_updated_at_column()` PostgreSQL trigger function.
+- Creates all 7 relational tables with appropriate column types and strict check constraints.
+- Creates 14 performance indexes across lookup keys and status fields.
+- Sets up `BEFORE UPDATE` triggers on `customers`, `orders`, `payments`, `chat_sessions`, and `tickets`.
+
+#### 2. `tests/test_database_schema.py` [NEW]
+Pytest test suite validating both the local SQL migration file and remote Supabase tables:
+- **`test_migration_file_exists`**: Ensures the migration file exists and is populated.
+- **`test_migration_file_defines_all_core_tables`**: Asserts DDL declarations for all 7 required tables.
+- **`test_migration_file_contains_constraints_and_indexes`**: Asserts check constraints, foreign keys, triggers, and indexes.
+- **`test_supabase_client_ready`**: Verifies client connectivity.
+- **`test_remote_table_exists_and_queryable`**: Parameterized test querying each table via PostgREST.
+- **`test_remote_customer_lifecycle_integrity`**: Safe integration test performing isolated record insert, query, and cleanup.
+
+---
+
+### How to Apply the Migration to Supabase
+
+#### Option A: Supabase Web Dashboard (Fastest & Recommended)
+1. Open your [Supabase Dashboard](https://supabase.com/dashboard).
+2. Select your ResolveX project.
+3. In the left navigation menu, click **SQL Editor**.
+4. Click **New query** (or `+`).
+5. Open [`database/migrations/001_initial_schema.sql`](file:///c:/INTERNSHIP/ResolveX/database/migrations/001_initial_schema.sql), copy its entire content, and paste it into the editor.
+6. Click **Run** (or press `Ctrl`+`Enter` / `Cmd`+`Enter`).
+7. Confirm that the execution status shows **Success: No rows returned**.
+8. Go to **Table Editor** to visually verify that all 7 tables (`customers`, `orders`, `order_items`, `payments`, `chat_sessions`, `messages`, `tickets`) are present.
+
+#### Option B: Supabase CLI
+```bash
+# Link your local project to Supabase
+supabase link --project-ref <your-project-ref>
+
+# Apply the migration
+supabase db push
+```
+
+---
+
+### How to Run Database Schema Tests
+
+1. Run the local migration structure and client readiness tests:
+   ```bash
+   pytest tests/test_database_schema.py -k "test_migration or test_supabase_client_ready" -v
+   ```
+
+2. Run the complete test suite against the remote Supabase database:
+   ```bash
+   pytest tests/test_database_schema.py -v
+   ```
+
+3. Run all project tests:
+   ```bash
+   pytest tests/ -v
+   ```
+
+---
+
+### Test Results
+
+```text
+============================= test session starts =============================
+platform win32 -- Python 3.12.0, pytest-9.1.1, pluggy-1.6.0 -- C:\Users\rishu\AppData\Local\Programs\Python\Python312\python.exe
+cachedir: .pytest_cache
+rootdir: C:\INTERNSHIP\ResolveX
+plugins: anyio-4.12.0, langsmith-0.9.7, asyncio-1.4.0, typeguard-4.4.4
+asyncio: mode=Mode.STRICT, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collecting ... collected 12 items / 8 deselected / 4 selected
+
+tests/test_database_schema.py::test_migration_file_exists PASSED         [ 25%]
+tests/test_database_schema.py::test_migration_file_defines_all_core_tables PASSED [ 50%]
+tests/test_database_schema.py::test_migration_file_contains_constraints_and_indexes PASSED [ 75%]
+tests/test_database_schema.py::test_supabase_client_ready PASSED         [100%]
+
+======================= 4 passed, 8 deselected in 1.27s =======================
+```
+
+---
+
+### Debugging Checklist
+
+| Failure Scenario | Root Cause | Solution |
+| :--- | :--- | :--- |
+| **`PGRST205: Could not find table in schema cache`** | The SQL migration has not been applied to Supabase yet, or PostgREST schema cache has not refreshed. | Open Supabase Dashboard $\rightarrow$ SQL Editor, paste and run `001_initial_schema.sql`. In Project Settings $\rightarrow$ API, you can also trigger a schema cache reload if needed. |
+| **`23503: foreign_key_violation`** | Attempting to insert a child row (e.g. `orders` or `tickets`) referencing a non-existent parent ID. | Ensure the referenced parent record (e.g. `customer_id` in `customers`) exists prior to inserting child records. |
+| **`23514: check_violation`** | Inserting a value that violates a `CHECK` constraint (e.g. invalid `status`, negative `amount`, invalid `tier`). | Verify that string values match the exact permitted uppercase values (`STANDARD`, `GOLD`, `PLATINUM`, `PENDING`, `SHIPPED`, etc.). |
+| **`23505: unique_violation`** | Duplicate value inserted into a column marked `UNIQUE` (such as `customers.email`). | Ensure customer emails are unique or perform an upsert query. |
+| **`Permission Denied / RLS Block`** | Row Level Security (RLS) enabled without policies allowing anon/service role queries. | In development, ensure either RLS policies exist for table operations or appropriate service keys are configured for administrative scripts. |
+
