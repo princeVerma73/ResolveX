@@ -73,8 +73,8 @@ Every component in ResolveX is classified into one of three architectural status
 | **Pydantic v2 Domain Schemas** | **Implemented** | [`Backend/schemas/`](file:///c:/INTERNSHIP/ResolveX/Backend/schemas) (`common`, `customer`, `order`, `payment`, `chat`, `ticket`) |
 | **Policy Source Documents (PDFs)** | **Implemented** | [`data/knowledge_base/`](file:///c:/INTERNSHIP/ResolveX/data/knowledge_base) (7 local policy PDFs present) |
 | **FastAPI Core Gateway** | **Partially Implemented** | [`Backend/main.py`](file:///c:/INTERNSHIP/ResolveX/Backend/main.py) (`GET /health` implemented; business routes planned) |
-| **Verification Test Suite** | **Implemented** | [`tests/test_database_schema.py`](file:///c:/INTERNSHIP/ResolveX/tests/test_database_schema.py), [`test_domain_models.py`](file:///c:/INTERNSHIP/ResolveX/tests/test_domain_models.py), [`test_supabase_connection.py`](file:///c:/INTERNSHIP/ResolveX/tests/test_supabase_connection.py) |
-| **Database Service Layer** | *Planned* | `Backend/services/` (`customer_service.py`, `order_service.py`, `payment_service.py`, `ticket_service.py`) |
+| **Verification Test Suite** | **Implemented** | [`tests/test_database_schema.py`](file:///c:/INTERNSHIP/ResolveX/tests/test_database_schema.py), [`test_domain_models.py`](file:///c:/INTERNSHIP/ResolveX/tests/test_domain_models.py), [`test_domain_services.py`](file:///c:/INTERNSHIP/ResolveX/tests/test_domain_services.py), [`test_services_foundation.py`](file:///c:/INTERNSHIP/ResolveX/tests/test_services_foundation.py), [`test_supabase_connection.py`](file:///c:/INTERNSHIP/ResolveX/tests/test_supabase_connection.py) |
+| **Database Service Layer** | **Implemented** | [`Backend/services/`](file:///c:/INTERNSHIP/ResolveX/Backend/services) (`base.py`, `customer_service.py`, `order_service.py`, `payment_service.py`, `chat_service.py`, `ticket_service.py`) |
 | **RAG Ingestion & pgvector Table** | *Planned* | `Backend/rag/` (`chunking.py`, `embeddings.py`, `retriever.py`, `knowledge_embeddings` table) |
 | **LangGraph Agent Orchestrator** | *Planned* | `Backend/agents/` (`orchestrator.py`, `state.py`, `nodes.py`, `router.py`) |
 | **Business Function Tools** | *Planned* | `Backend/tools/` (`order_tools.py`, `payment_tools.py`, `ticket_tools.py`, `rag_tools.py`) |
@@ -180,7 +180,7 @@ graph TB
         Enums["Business Enums (OrderStatus, PaymentStatus, TicketPriority)"]
     end
 
-    subgraph ServiceLayer ["4. Application & Service Layer [Planned]"]
+    subgraph ServiceLayer ["4. Application & Service Layer [Implemented]"]
         S_Customer["Customer Service"]
         S_Order["Order Service"]
         S_Payment["Payment Service"]
@@ -255,8 +255,14 @@ Backend/
 │   └── ticket.py               # TicketCreate, TicketUpdate, TicketResponse
 ├── models/                     # [Planned] Database entity ORM/mapping abstractions
 │   └── __init__.py
-├── services/                   # [Planned] Business logic & database operations
-│   └── __init__.py
+├── services/                   # [Implemented] Business logic & database operations
+│   ├── __init__.py             # Exports BaseService and 5 domain services
+│   ├── base.py                 # BaseService table wrapper and db error handler
+│   ├── customer_service.py     # Customer CRUD and lookups
+│   ├── order_service.py        # Order and order items CRUD with status guards
+│   ├── payment_service.py      # Payment transaction management
+│   ├── chat_service.py         # Chat session and message thread persistence
+│   └── ticket_service.py       # Support ticket operations and human escalation
 ├── api/                        # [Planned] HTTP route handlers
 │   ├── __init__.py
 │   └── routes/
@@ -525,16 +531,28 @@ class AgentState(TypedDict):
 
 ## 11. Business Tools & Service Layer
 
-The planned service layer separates non-deterministic language generation from deterministic database queries:
+The service layer cleanly separates non-deterministic language generation from deterministic database queries. Domain services are **Implemented** in `Backend/services/`, providing validated, type-safe operations ready for LangGraph agent tool bindings in Step 6.
 
-| Service / Tool Function | Status | Target Database Table | Operation Type | Planned Input Parameters |
+### 11.1 Implemented Domain Services (`Backend/services/`)
+
+| Domain Service Class | Implementation Status | Bound PostgreSQL Tables | Primary Domain Methods | Invariant Guards & Protections |
 | :--- | :---: | :--- | :--- | :--- |
-| `check_order_status` | *Planned* | `orders`, `order_items` | Read (SELECT) | `order_id: str` |
-| `check_payment_status` | *Planned* | `payments` | Read (SELECT) | `order_id: str` or `payment_id: str` |
-| `create_support_ticket` | *Planned* | `tickets` | Write (INSERT) | `customer_id`, `subject`, `description`, `category`, `priority` |
-| `get_delivery_status` | *Planned* | `orders` | Read (SELECT) | `order_id: str` |
-| `search_knowledge_base` | *Planned* | `knowledge_embeddings` | Read (Vector Cosine Match) | `query: str`, `top_k: int = 3` |
-| `escalate_to_human` | *Planned* | `tickets`, `chat_sessions` | Write (INSERT) | `session_id: str`, `reason: str` |
+| [`CustomerService`](file:///c:/INTERNSHIP/ResolveX/Backend/services/customer_service.py) | **Implemented** | `customers` | `get_customer_by_id`, `get_customer_by_email`, `create_customer`, `update_customer` | Raises `ResourceNotFoundError` for missing customers; auto-generates IDs (`CUST-...`). |
+| [`OrderService`](file:///c:/INTERNSHIP/ResolveX/Backend/services/order_service.py) | **Implemented** | `orders`, `order_items`, `payments` | `get_order_by_id`, `get_order_items`, `get_order_with_details`, `create_order`, `update_order_status` | Forbids cancelling `DELIVERED` orders; forbids shipping `CANCELLED` orders. |
+| [`PaymentService`](file:///c:/INTERNSHIP/ResolveX/Backend/services/payment_service.py) | **Implemented** | `payments` | `get_payment_by_id`, `get_payments_by_order_id`, `create_payment`, `verify_payment_status`, `update_payment_status` | Blocks state modifications on `REFUNDED` transactions. |
+| [`ChatService`](file:///c:/INTERNSHIP/ResolveX/Backend/services/chat_service.py) | **Implemented** | `chat_sessions`, `messages` | `create_session`, `get_session`, `update_session`, `add_message`, `get_messages`, `get_session_with_messages` | Validates session existence before message insertion; maintains chronological order. |
+| [`TicketService`](file:///c:/INTERNSHIP/ResolveX/Backend/services/ticket_service.py) | **Implemented** | `tickets` | `create_ticket`, `get_ticket_by_id`, `get_tickets_by_customer_id`, `update_ticket_status`, `escalate_ticket` | Forbids escalating `CLOSED` tickets; elevates priority to `URGENT` with audit notes. |
+
+### 11.2 Planned Business Tool Wrappers (`Backend/tools/` [Planned])
+
+| Planned Agent Tool Function | Status | Underlying Implemented Service Method | Operation Type | Planned Input Parameters |
+| :--- | :---: | :--- | :--- | :--- |
+| `check_order_status` | *Planned* | `OrderService.get_order_with_details(order_id)` | Read (SELECT) | `order_id: str` |
+| `check_payment_status` | *Planned* | `PaymentService.get_payment_by_id(payment_id)` | Read (SELECT) | `order_id: str` or `payment_id: str` |
+| `create_support_ticket` | *Planned* | `TicketService.create_ticket(payload)` | Write (INSERT) | `customer_id`, `subject`, `description`, `category`, `priority` |
+| `get_delivery_status` | *Planned* | `OrderService.get_order_by_id(order_id)` | Read (SELECT) | `order_id: str` |
+| `search_knowledge_base` | *Planned* | `KnowledgeRetriever.search(query, top_k)` | Read (Vector Match) | `query: str`, `top_k: int = 3` |
+| `escalate_to_human` | *Planned* | `TicketService.escalate_ticket(ticket_id, ...)` | Write (UPDATE/INSERT) | `ticket_id: str` or `session_id: str`, `reason: str` |
 
 ---
 

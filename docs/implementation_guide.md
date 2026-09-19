@@ -11,7 +11,7 @@
 | **Step 1** | Supabase Project Setup | **Completed** | Managed PostgreSQL backend initialization for persistent storage & vector search. |
 | **Step 2** | Supabase Backend Connection | **Completed** | Reusable Python Supabase client module, environment variable loading, and connectivity test. |
 | **Step 3** | Database Schema & Migrations | **Completed** | Core relational tables (customers, orders, items, payments, chat sessions, messages, tickets) and indexes. |
-| **Step 4** | Core Domain Models & Services | **In Progress** | Pydantic v2 domain schemas (Phases 1-2) and Service Layer Foundation & Custom Exceptions (Phase 3). |
+| **Step 4** | Core Domain Models & Services | **Completed** | Pydantic v2 schemas (Phases 1-2), Service Foundation (Phase 3), and Database CRUD Services (Phase 4). |
 | **Step 5** | RAG Pipeline & Vector Search | *Pending* | Document ingestion, chunking, embeddings, and similarity retrieval. |
 | **Step 6** | LangGraph Agents & Tools | *Pending* | Triage, Orders, Technical Support, and Escalation agents. |
 | **Step 7** | API Layer & WebSocket Chat | *Pending* | FastAPI routes and real-time streaming endpoints. |
@@ -234,7 +234,8 @@ erDiagram
 ### Step 4 Roadmap Breakdown
 - **Phase 1 & Phase 2 — Domain Models & Pydantic Schemas**: Centralized validation schemas for all domain entities (`Customer`, `Order`, `Payment`, `ChatSession`, `Message`, `Ticket`). [Completed]
 - **Phase 3 — Service Layer Foundation & Custom Exceptions**: Reusable `BaseService`, custom exception hierarchy with exception chaining, and domain service class foundations. [Completed]
-- **Phase 4 — Domain CRUD Service Implementations**: Typed database query and mutation methods for operational business workflows. [*Upcoming Planned Phase*]
+- **Phase 4 — Domain CRUD Service Implementations**: Typed database query and mutation methods for operational business workflows (`CustomerService`, `OrderService`, `PaymentService`, `ChatService`, `TicketService`). [Completed]
+- **Phase 5 — Test Verification, Limitations Analysis, and Step 4 Formal Review & Closure**: 100% test pass verification across 69 tests, invariant guard coverage table, and known limitations analysis. [Completed]
 
 ---
 
@@ -630,48 +631,305 @@ flowchart TD
 
 ---
 
-### Separation of Concerns: Implemented vs Planned Phase 4
+### Step 4 — Phase 4: Database CRUD Services & Domain Operations
 
+#### WHAT
+Implementing the concrete database CRUD and domain operations across all 5 service classes (`CustomerService`, `OrderService`, `PaymentService`, `ChatService`, and `TicketService`), backed by PostgREST query execution, Pydantic v2 schemas, and custom exception handling:
+
+1. **`CustomerService` (`Backend/services/customer_service.py`)**:
+   - `get_customer_by_id(customer_id: str) -> CustomerResponse`: Looks up customer by PK; raises `ResourceNotFoundError` if missing.
+   - `get_customer_by_email(email: str) -> CustomerResponse | None`: Looks up customer by unique email.
+   - `create_customer(payload: CustomerCreate) -> CustomerResponse`: Auto-generates `customer_id` (`CUST-...`) if omitted; persists customer.
+   - `update_customer(customer_id: str, payload: CustomerUpdate) -> CustomerResponse`: Partially updates customer profile; handles not found safely.
+
+2. **`OrderService` (`Backend/services/order_service.py`)**:
+   - `get_order_by_id(order_id: str) -> OrderResponse`: Retrieves order by PK.
+   - `get_order_items(order_id: str) -> list[OrderItemResponse]`: Retrieves order line items from `order_items`.
+   - `get_order_with_details(order_id: str) -> OrderWithDetailsResponse`: Composite lookup fetching order header, nested line items, and associated payment records.
+   - `create_order(payload: OrderCreate) -> OrderWithDetailsResponse`: Atomically creates order header (computing total amount if needed) and inserts line items with generated IDs.
+   - `update_order(order_id: str, payload: OrderUpdate) -> OrderResponse`: Partially updates order attributes with domain status transition guards.
+   - `update_order_status(order_id: str, status: OrderStatus | str) -> OrderResponse`: Validates state transitions (e.g., prevents cancelling delivered orders via `InvalidOperationError`).
+
+3. **`PaymentService` (`Backend/services/payment_service.py`)**:
+   - `get_payment_by_id(payment_id: str) -> PaymentResponse`: Retrieves payment by PK.
+   - `get_payments_by_order_id(order_id: str) -> list[PaymentResponse]`: Retrieves all payment records for an order.
+   - `create_payment(payload: PaymentCreate) -> PaymentResponse`: Inserts financial transaction record with auto-generated ID (`PAY-...`).
+   - `verify_payment_status(payment_id: str) -> PaymentResponse`: Looks up payment transaction status.
+   - `update_payment_status(payment_id: str, payload: PaymentUpdate) -> PaymentResponse`: Updates payment status with domain invariant validation (e.g., prevents reopening refunded payments).
+
+4. **`ChatService` (`Backend/services/chat_service.py`)**:
+   - `create_session(payload: ChatSessionCreate | None = None) -> ChatSessionResponse`: Creates new session with defaults or custom attributes.
+   - `get_session(session_id: str) -> ChatSessionResponse`: Retrieves session context memory and metadata.
+   - `update_session(session_id: str, payload: ChatSessionUpdate) -> ChatSessionResponse`: Updates conversational entities, history, or status.
+   - `add_message(payload: MessageCreate) -> MessageResponse`: Validates session existence and appends message turn into `messages`.
+   - `get_messages(session_id: str, limit: int = 100) -> list[MessageResponse]`: Retrieves chronological message thread for a session.
+   - `get_session_with_messages(session_id: str) -> ChatSessionWithMessagesResponse`: Composite lookup assembling session and message turns.
+
+5. **`TicketService` (`Backend/services/ticket_service.py`)**:
+   - `create_ticket(payload: TicketCreate) -> TicketResponse`: Files a support ticket with auto-generated ID (`TCK-...`).
+   - `get_ticket_by_id(ticket_id: str) -> TicketResponse`: Retrieves ticket by PK.
+   - `get_tickets_by_customer_id(customer_id: str) -> list[TicketResponse]`: Retrieves all tickets filed by a customer.
+   - `update_ticket(ticket_id: str, payload: TicketUpdate) -> TicketResponse`: Partially updates ticket attributes.
+   - `update_ticket_status(ticket_id: str, status: TicketStatus | str, resolution_notes: str | None = None) -> TicketResponse`: Transitions ticket status.
+   - `escalate_ticket(ticket_id: str, priority: TicketPriority | str, reason: str | None, assigned_agent: str | None) -> TicketResponse`: Validates ticket is not closed, escalates status to `ESCALATED`, updates priority, assigns agent, and records audit remarks.
+
+6. **Comprehensive Unit Test Suite (`tests/test_domain_services.py`)**:
+   - 17 isolated unit tests validating all service CRUD methods, error wrapping, domain invariant checks, and edge cases using mock PostgREST builders.
+
+---
+
+#### WHY
+The domain service layer bridges high-level AI agent decisions and raw database tables:
+- **Type Safety & Schema Validation**: Raw PostgREST query results are immediately parsed and validated into Pydantic models, eliminating `KeyError` risks and data type mismatches across the backend.
+- **Enforced Business Invariants**: State transition rules (such as forbidding cancellation of delivered orders or escalating closed tickets) live in the domain service rather than scattered across agents or API routes.
+- **Standardized Exception Handling**: Database query failures are automatically intercepted and wrapped into typed `DatabaseOperationError` exceptions with context details while preserving low-level tracebacks via exception chaining.
+- **Separation of Concerns**: AI agents and API endpoints invoke clean Python methods (`service.create_order(...)`, `service.escalate_ticket(...)`) without crafting SQL queries or PostgREST filtering chains directly.
+
+---
+
+### Request-to-Database Flow Diagrams
+
+#### 1. Order Creation & Line Item Persistence Flow
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Caller as Agent / API Endpoint
+    participant Svc as OrderService
+    participant PostgREST as Supabase PostgREST
+    participant DB as PostgreSQL (orders & order_items)
+
+    Caller->>Svc: create_order(OrderCreate(customer_id="CUST-1", items=[...]))
+    Svc->>Svc: Auto-generate order_id ("ORD-123") & Calculate total_amount
+    Svc->>PostgREST: table("orders").insert(order_data).execute()
+    PostgREST->>DB: INSERT INTO orders ...
+    DB-->>PostgREST: Returned Order Row
+    PostgREST-->>Svc: res.data
+
+    loop For each item in payload.items
+        Svc->>Svc: Auto-generate item_id & bind order_id
+    end
+    Svc->>PostgREST: table("order_items").insert(items_data).execute()
+    PostgREST->>DB: INSERT INTO order_items ...
+    DB-->>PostgREST: Returned Items Rows
+    PostgREST-->>Svc: res.data
+
+    Svc->>Svc: Assemble OrderWithDetailsResponse
+    Svc-->>Caller: OrderWithDetailsResponse (order + items + payments)
 ```
-┌────────────────────────────────────────────────────────────────────────┐
-│               STEP 4 IMPLEMENTATION BOUNDARY SEPARATION                 │
-├──────────────────────────────────────┬─────────────────────────────────┤
-│    IMPLEMENTED (Phase 1, 2 & 3)      │       PLANNED (Phase 4)         │
-├──────────────────────────────────────┼─────────────────────────────────┤
-│ • Pydantic v2 domain schemas         │ • get_customer_by_id(id) CRUD   │
-│ • Custom exception hierarchy         │ • get_order_with_items(order_id)│
-│ • BaseService client & table wrapper │ • create_order_with_items()     │
-│ • Domain service class foundations   │ • verify_payment_status()       │
-│ • Exception chaining & db error hook │ • create_chat_session_turn()    │
-│ • 15 in-memory unit tests            │ • create_and_escalate_ticket()  │
-└──────────────────────────────────────┴─────────────────────────────────┘
+
+#### 2. Ticket Escalation & Guard Flow
+```mermaid
+flowchart TD
+    A["Caller calls ticket_service.escalate_ticket(ticket_id, reason)"] --> B["Fetch current ticket via get_ticket_by_id(ticket_id)"]
+    B --> C{"Is ticket.status == 'CLOSED'?"}
+    C -->|Yes| D["Raise InvalidOperationError('Cannot escalate a closed support ticket')"]
+    C -->|No| E["Construct TicketUpdate(status='ESCALATED', priority='URGENT', ...)"]
+    E --> F["Execute table('tickets').update(...).eq('ticket_id', id)"]
+    F --> G["Parse and Return updated TicketResponse"]
 ```
 
 ---
 
-### Test Suite Execution & Verification
+### Detailed Code Changes Breakdown
 
-Run the service foundation test suite:
-```bash
-pytest tests/test_services_foundation.py -v
+| File Name | Class / Method Name | What Changed | Why It Was Needed | How It Works |
+| :--- | :--- | :--- | :--- | :--- |
+| [`Backend/services/customer_service.py`](file:///c:/INTERNSHIP/ResolveX/Backend/services/customer_service.py) | `CustomerService.get_customer_by_id` | Implemented PK lookup | Fetches customer profile | Runs `.select("*").eq("customer_id", id)`, raises `ResourceNotFoundError` if missing |
+| [`Backend/services/customer_service.py`](file:///c:/INTERNSHIP/ResolveX/Backend/services/customer_service.py) | `CustomerService.get_customer_by_email` | Implemented email lookup | Checks customer by unique email | Runs `.select("*").eq("email", email)`, returns `CustomerResponse` or `None` |
+| [`Backend/services/customer_service.py`](file:///c:/INTERNSHIP/ResolveX/Backend/services/customer_service.py) | `CustomerService.create_customer` | Implemented customer creation | Registers new customer profile | Auto-generates ID, dumps model, inserts into `customers`, validates response |
+| [`Backend/services/customer_service.py`](file:///c:/INTERNSHIP/ResolveX/Backend/services/customer_service.py) | `CustomerService.update_customer` | Implemented partial update | Updates customer details | Dumps `exclude_unset=True`, runs `.update()`, raises `ResourceNotFoundError` if not found |
+| [`Backend/services/order_service.py`](file:///c:/INTERNSHIP/ResolveX/Backend/services/order_service.py) | `OrderService.get_order_by_id` | Implemented order lookup | Fetches order header | Queries `orders` table by `order_id` |
+| [`Backend/services/order_service.py`](file:///c:/INTERNSHIP/ResolveX/Backend/services/order_service.py) | `OrderService.get_order_items` | Implemented line item query | Retrieves items for order | Queries `order_items` where `order_id == id` |
+| [`Backend/services/order_service.py`](file:///c:/INTERNSHIP/ResolveX/Backend/services/order_service.py) | `OrderService.get_order_with_details` | Implemented composite query | Provides full order view with items & payments | Queries order, items, and payments, assembling `OrderWithDetailsResponse` |
+| [`Backend/services/order_service.py`](file:///c:/INTERNSHIP/ResolveX/Backend/services/order_service.py) | `OrderService.create_order` | Implemented order & items creation | Creates order and line items | Calculates total, inserts into `orders`, then batch inserts into `order_items` |
+| [`Backend/services/order_service.py`](file:///c:/INTERNSHIP/ResolveX/Backend/services/order_service.py) | `OrderService.update_order_status` | Implemented status transition | Safely updates order state | Enforces domain rules (cannot cancel delivered order via `InvalidOperationError`) |
+| [`Backend/services/payment_service.py`](file:///c:/INTERNSHIP/ResolveX/Backend/services/payment_service.py) | `PaymentService.get_payment_by_id` | Implemented payment lookup | Retrieves payment by ID | Queries `payments` table |
+| [`Backend/services/payment_service.py`](file:///c:/INTERNSHIP/ResolveX/Backend/services/payment_service.py) | `PaymentService.create_payment` | Implemented payment creation | Records financial transaction | Auto-generates ID, inserts into `payments` |
+| [`Backend/services/payment_service.py`](file:///c:/INTERNSHIP/ResolveX/Backend/services/payment_service.py) | `PaymentService.update_payment_status` | Implemented payment update | Modifies payment status | Guards against mutating `REFUNDED` payments |
+| [`Backend/services/chat_service.py`](file:///c:/INTERNSHIP/ResolveX/Backend/services/chat_service.py) | `ChatService.create_session` | Implemented session initialization | Opens conversation thread | Inserts session into `chat_sessions` |
+| [`Backend/services/chat_service.py`](file:///c:/INTERNSHIP/ResolveX/Backend/services/chat_service.py) | `ChatService.add_message` | Implemented message turn append | Persists user/agent message | Verifies session exists, inserts into `messages` |
+| [`Backend/services/chat_service.py`](file:///c:/INTERNSHIP/ResolveX/Backend/services/chat_service.py) | `ChatService.get_session_with_messages` | Implemented composite session thread | Loads conversation history | Fetches session + messages ordered chronologically |
+| [`Backend/services/ticket_service.py`](file:///c:/INTERNSHIP/ResolveX/Backend/services/ticket_service.py) | `TicketService.create_ticket` | Implemented support ticket creation | Files support ticket | Auto-generates ID, inserts into `tickets` |
+| [`Backend/services/ticket_service.py`](file:///c:/INTERNSHIP/ResolveX/Backend/services/ticket_service.py) | `TicketService.escalate_ticket` | Implemented human escalation | Escalates ticket to urgent agent review | Validates ticket is not `CLOSED`, updates status, priority, and notes |
+| [`tests/test_domain_services.py`](file:///c:/INTERNSHIP/ResolveX/tests/test_domain_services.py) | 17 Test Functions | Implemented domain service test suite | Tests all services offline | Uses `unittest.mock.MagicMock` to simulate PostgREST chains |
+
+---
+
+### Line-by-Line Code Walkthrough
+
+#### 1. `Backend/services/customer_service.py` (`get_customer_by_id` & `create_customer`)
+```python
+def get_customer_by_id(self, customer_id: str) -> CustomerResponse:
+    try:
+        res = self.table.select("*").eq("customer_id", customer_id).execute()
+    except Exception as exc:
+        raise self._handle_db_error(
+            operation="SELECT", exc=exc, details={"customer_id": customer_id}
+        ) from exc
+
+    if not res.data:
+        raise ResourceNotFoundError(resource_type="Customer", resource_id=customer_id)
+
+    return CustomerResponse.model_validate(res.data[0])
 ```
+- **Lines 1–6**: Queries the `customers` table filtering by `customer_id`. If low-level database failure occurs (network dropout, timeout), `_handle_db_error` creates a `DatabaseOperationError` chained to the original exception (`from exc`).
+- **Lines 8–9**: If PostgREST returns an empty list `res.data == []`, raises typed `ResourceNotFoundError` containing `resource_type="Customer"` and `resource_id`.
+- **Line 11**: Deserializes and validates the first row into a typed `CustomerResponse` Pydantic instance.
 
-Run all project tests:
+---
+
+#### 2. `Backend/services/order_service.py` (`_validate_status_transition`)
+```python
+def _validate_status_transition(self, current_status: str, new_status: str) -> None:
+    current_status = str(current_status).upper()
+    new_status = str(new_status).upper()
+
+    if current_status == OrderStatus.DELIVERED.value and new_status == OrderStatus.CANCELLED.value:
+        raise InvalidOperationError(
+            operation="update_order_status",
+            reason="Cannot cancel an order that has already been delivered.",
+        )
+```
+- **Lines 1–5**: Normalizes both statuses to uppercase strings.
+- **Lines 6–10**: Enforces business rule: If an order has already reached `DELIVERED` status, transitioning to `CANCELLED` is forbidden and raises `InvalidOperationError`.
+
+---
+
+#### 3. `Backend/services/ticket_service.py` (`escalate_ticket`)
+```python
+def escalate_ticket(
+    self,
+    ticket_id: str,
+    priority: TicketPriority | str = TicketPriority.URGENT,
+    reason: str | None = None,
+    assigned_agent: str | None = None,
+) -> TicketResponse:
+    current_ticket = self.get_ticket_by_id(ticket_id)
+
+    if current_ticket.status == TicketStatus.CLOSED.value:
+        raise InvalidOperationError(
+            operation="escalate_ticket",
+            reason="Cannot escalate a closed support ticket.",
+        )
+```
+- **Lines 1–8**: Fetches current ticket record to check existence and state.
+- **Lines 9–14**: Invariant guard: closed tickets cannot be escalated.
+- **Lines 15–30**: Prepares update payload with `status="ESCALATED"`, upgraded priority (e.g. `URGENT`), assigned agent, and appends the escalation reason to `resolution_notes`.
+
+---
+
+### Dry Runs: Successful & Failure Scenarios
+
+#### Dry Run 1: Successful Customer Lookup
+- **Input**: `customer_service.get_customer_by_id("CUST-001")`
+- **Mock DB Return**: `[{"customer_id": "CUST-001", "full_name": "Alice", "email": "alice@test.com", "tier": "GOLD", "created_at": "...", "updated_at": "..."}]`
+- **Execution Steps**:
+  1. `self.table.select("*").eq("customer_id", "CUST-001").execute()` returns rows.
+  2. `res.data` is non-empty.
+  3. `CustomerResponse.model_validate(res.data[0])` parses and validates types.
+- **Result**: Valid `CustomerResponse` instance returned.
+
+#### Dry Run 2: Missing Customer ID Lookup (Failure)
+- **Input**: `customer_service.get_customer_by_id("CUST-999")`
+- **Mock DB Return**: `[]`
+- **Execution Steps**:
+  1. Query executes successfully without network error.
+  2. `res.data` is empty `[]`.
+  3. Service raises `ResourceNotFoundError(resource_type="Customer", resource_id="CUST-999")`.
+- **Result**: `ResourceNotFoundError: Customer with ID 'CUST-999' was not found.`
+
+#### Dry Run 3: Illegal Order Cancellation (Failure)
+- **Input**: `order_service.update_order_status("ORD-001", OrderStatus.CANCELLED)`
+- **Current DB State**: `status = "DELIVERED"`
+- **Execution Steps**:
+  1. `get_order_by_id("ORD-001")` retrieves current order with `status == "DELIVERED"`.
+  2. `_validate_status_transition("DELIVERED", "CANCELLED")` detects forbidden state change.
+  3. Service raises `InvalidOperationError(operation="update_order_status", reason="Cannot cancel an order that has already been delivered.")`.
+- **Result**: Operation rejected before executing any database update.
+
+---
+
+---
+
+### Step 4 — Phase 5: Test Verification, Limitations Analysis, and Step 4 Formal Review & Closure
+
+#### WHAT
+Executing formal verification, edge-case coverage auditing, limitations analysis, and milestone closure for **Step 4 (Core Domain Models & Services)**.
+
+---
+
+### 1. Full 69-Test Pass Breakdown
+
+| Test Module File | Test Count | Scope & Verification Type | Pass Rate |
+| :--- | :---: | :--- | :---: |
+| [`tests/test_database_schema.py`](file:///c:/INTERNSHIP/ResolveX/tests/test_database_schema.py) | **13** | Schema DDL, table constraints, indexes, triggers, idempotent RLS policies, and live Supabase lifecycle | 100% |
+| [`tests/test_domain_models.py`](file:///c:/INTERNSHIP/ResolveX/tests/test_domain_models.py) | **21** | Pydantic v2 schemas, type coercion, field constraints, regex validations, decimal precision | 100% |
+| [`tests/test_services_foundation.py`](file:///c:/INTERNSHIP/ResolveX/tests/test_services_foundation.py) | **15** | Custom exception hierarchy, `__cause__` exception chaining, `BaseService` client injection & table routing | 100% |
+| [`tests/test_domain_services.py`](file:///c:/INTERNSHIP/ResolveX/tests/test_domain_services.py) | **18** | Domain service CRUD methods, missing entity errors, partial failure wrapping, and state invariant guards | 100% |
+| [`tests/test_supabase_connection.py`](file:///c:/INTERNSHIP/ResolveX/tests/test_supabase_connection.py) | **2** | Client initialization from `.env` and Supabase storage reachability check | 100% |
+| **Total Automated Tests** | **69** | **Full Unit & Integration Test Suite** | **100%** |
+
+---
+
+### 2. Edge-Case & Invariant Guard Coverage Table
+
+| Invariant / Edge-Case Scenario | Service Class | Protected Behavior | Exception Raised | Test Function |
+| :--- | :--- | :--- | :--- | :--- |
+| **Delivered Order Cancellation** | [`OrderService`](file:///c:/INTERNSHIP/ResolveX/Backend/services/order_service.py) | Forbids transitioning an order from `DELIVERED` to `CANCELLED` | [`InvalidOperationError`](file:///c:/INTERNSHIP/ResolveX/Backend/core/exceptions.py#L93-L118) | `test_order_service_forbidden_status_transition` |
+| **Cancelled Order Reshipment / Delivery** | [`OrderService`](file:///c:/INTERNSHIP/ResolveX/Backend/services/order_service.py) | Forbids transitioning an order from `CANCELLED` to `SHIPPED` or `DELIVERED` | [`InvalidOperationError`](file:///c:/INTERNSHIP/ResolveX/Backend/core/exceptions.py#L93-L118) | `test_order_service_forbidden_status_transition` |
+| **Refunded Payment Modification** | [`PaymentService`](file:///c:/INTERNSHIP/ResolveX/Backend/services/payment_service.py) | Forbids transitioning an already `REFUNDED` payment transaction back to `SUCCESS` or `PENDING` | [`InvalidOperationError`](file:///c:/INTERNSHIP/ResolveX/Backend/core/exceptions.py#L93-L118) | `test_payment_service_refunded_cannot_be_reopened` |
+| **Closed Ticket Escalation** | [`TicketService`](file:///c:/INTERNSHIP/ResolveX/Backend/services/ticket_service.py) | Forbids human escalation on an already `CLOSED` support ticket | [`InvalidOperationError`](file:///c:/INTERNSHIP/ResolveX/Backend/core/exceptions.py#L93-L118) | `test_ticket_service_cannot_escalate_closed_ticket` |
+| **Missing Entity Lookups** | All Services | Queries returning empty results (`res.data == []`) raise typed not-found errors | [`ResourceNotFoundError`](file:///c:/INTERNSHIP/ResolveX/Backend/core/exceptions.py#L31-L60) | `test_customer_service_get_by_id_not_found`, `test_resource_not_found_error_with_id` |
+| **Database Drop Error Chaining** | All Services | Low-level database library errors are wrapped with table details while preserving original stack trace | [`DatabaseOperationError`](file:///c:/INTERNSHIP/ResolveX/Backend/core/exceptions.py#L61-L91) (`__cause__`) | `test_customer_service_db_error_wrapping`, `test_database_operation_error_chaining` |
+| **Partial Order Creation Failure** | [`OrderService`](file:///c:/INTERNSHIP/ResolveX/Backend/services/order_service.py) | Catches failures during line item persistence following order header creation | [`DatabaseOperationError`](file:///c:/INTERNSHIP/ResolveX/Backend/core/exceptions.py#L61-L91) | `test_order_service_create_order_partial_failure_on_items` |
+
+---
+
+### 3. Known Limitations & Mitigation Architecture
+
+#### Known Limitation: Non-Transactional Multi-Table Order Creation
+- **Mechanism**: In [`OrderService.create_order()`](file:///c:/INTERNSHIP/ResolveX/Backend/services/order_service.py#L114-L186), order creation executes across two sequential PostgREST REST calls:
+  1. `orders.insert(order_data).execute()` (writes order header)
+  2. `order_items.insert(items_data).execute()` (writes line items)
+- **Risk**: If the second call fails due to a network drop or constraint violation, the order header exists in `orders` without child line items. PostgREST does not support multi-table atomic transactions over standard REST endpoints.
+- **Current Behavior**: The service intercepts the error and raises [`DatabaseOperationError`](file:///c:/INTERNSHIP/ResolveX/Backend/core/exceptions.py#L61-L91) with metadata identifying the failure stage (`{"table": "order_items"}`).
+- **Future Mitigation Path**: In a subsequent architectural hardening step, a PostgreSQL stored procedure (RPC) written in PL/pgSQL will execute header insertion and items insertion inside a single atomic database transaction (`BEGIN ... COMMIT / ROLLBACK`), invoked via `self.client.rpc("create_order_with_items", payload)`.
+
+---
+
+### 4. Step 4 Formal Completion Record
+
+> **Step 4 (Core Domain Models & Services) is Formally Completed.**
+> - **Phase 1 & 2**: Pydantic v2 schemas (`Customer`, `Order`, `Payment`, `ChatSession`, `Message`, `Ticket`) created and validated.
+> - **Phase 3**: Custom exception hierarchy with exception chaining (`__cause__`) and `BaseService` foundation established.
+> - **Phase 4**: Concrete database CRUD services (`CustomerService`, `OrderService`, `PaymentService`, `ChatService`, `TicketService`) implemented.
+> - **Phase 5**: 69 automated tests verified at 100% pass rate, invariant guards tested, known limitations analyzed with clear RPC mitigation paths documented.
+
+---
+
+### 5. Verified Full Test Suite Output
+
 ```bash
 pytest tests/ -v
 ```
 
-#### Verified Test Output
 ```text
 ============================= test session starts =============================
-platform win32 -- Python 3.12.0, pytest-9.1.1, pluggy-1.6.0
+platform win32 -- Python 3.12.0, pytest-9.1.1, pluggy-1.6.0 -- C:\Users\rishu\AppData\Local\Programs\Python\Python312\python.exe
+cachedir: .pytest_cache
 rootdir: C:\INTERNSHIP\ResolveX
-collected 51 items
+plugins: anyio-4.12.0, langsmith-0.9.7, asyncio-1.4.0, typeguard-4.4.4
+asyncio: mode=Mode.STRICT, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collected 69 items
 
-tests/test_database_schema.py .............                              [ 25%]
-tests/test_domain_models.py .....................                        [ 66%]
-tests/test_services_foundation.py ...............                        [ 96%]
+tests/test_database_schema.py .............                              [ 18%]
+tests/test_domain_models.py .....................                        [ 49%]
+tests/test_domain_services.py ..................                         [ 75%]
+tests/test_services_foundation.py ...............                        [ 97%]
 tests/test_supabase_connection.py ..                                     [100%]
 
-======================= 51 passed, 4 warnings in 4.47s ========================
+======================= 69 passed, 4 warnings in 6.29s ========================
 ```
+
+
+
