@@ -75,7 +75,7 @@ Every component in ResolveX is classified into one of three architectural status
 | **FastAPI Core Gateway** | **Partially Implemented** | [`Backend/main.py`](file:///c:/INTERNSHIP/ResolveX/Backend/main.py) (`GET /health` implemented; business routes planned) |
 | **Verification Test Suite** | **Implemented** | [`tests/test_database_schema.py`](file:///c:/INTERNSHIP/ResolveX/tests/test_database_schema.py), [`test_domain_models.py`](file:///c:/INTERNSHIP/ResolveX/tests/test_domain_models.py), [`test_domain_services.py`](file:///c:/INTERNSHIP/ResolveX/tests/test_domain_services.py), [`test_services_foundation.py`](file:///c:/INTERNSHIP/ResolveX/tests/test_services_foundation.py), [`test_supabase_connection.py`](file:///c:/INTERNSHIP/ResolveX/tests/test_supabase_connection.py) |
 | **Database Service Layer** | **Implemented** | [`Backend/services/`](file:///c:/INTERNSHIP/ResolveX/Backend/services) (`base.py`, `customer_service.py`, `order_service.py`, `payment_service.py`, `chat_service.py`, `ticket_service.py`) |
-| **RAG Ingestion & pgvector Table** | *Planned* | `Backend/rag/` (`chunking.py`, `embeddings.py`, `retriever.py`, `knowledge_embeddings` table) |
+| **RAG Ingestion & Document Parser** | **Partially Implemented** | [`Backend/rag/`](file:///c:/INTERNSHIP/ResolveX/Backend/rag) (`chunking.py`, `DocumentChunk`, `PolicyDocumentParser` implemented; pgvector table & embeddings in Phase 2) |
 | **LangGraph Agent Orchestrator** | *Planned* | `Backend/agents/` (`orchestrator.py`, `state.py`, `nodes.py`, `router.py`) |
 | **Business Function Tools** | *Planned* | `Backend/tools/` (`order_tools.py`, `payment_tools.py`, `ticket_tools.py`, `rag_tools.py`) |
 | **Conversation Memory Manager** | *Planned* | `Backend/memory/` (`session_memory.py`, `entity_tracker.py`) |
@@ -95,7 +95,8 @@ Every component in ResolveX is classified into one of three architectural status
 | **Supabase PostgreSQL** | **Implemented** | Primary relational database | Cloud-hosted PostgreSQL providing ACID transactions, triggers, foreign key constraints, and RLS. |
 | **supabase-py** (`>=2.0.0`) | **Implemented** | Supabase Python client SDK | Provides PostgREST and storage interfaces for database interactions. |
 | **python-dotenv** (`>=1.0.0`) | **Implemented** | Environment variable management | Loads secrets from root `.env` without hardcoding credentials in source code. |
-| **Pytest** | **Implemented** | Automated test suite | Used for connection testing, schema verification, and domain model validation. |
+| **pypdf** (`>=4.0.0`) | **Implemented** | Offline PDF parsing & text extraction | Parses raw policy text across all pages in `data/knowledge_base/` without external API dependency. |
+| **Pytest** | **Implemented** | Automated test suite | Used for connection testing, schema verification, domain model validation, and RAG chunking tests. |
 | **Supabase pgvector** | *Planned* | Vector similarity search for RAG | Native PostgreSQL extension for storing chunk embeddings (`knowledge_embeddings` table). |
 | **Google Gemini (Primary Target)** | *Planned* | Planned foundation LLM | Target model family for natural language understanding and agent reasoning (configured via `GEMINI_API_KEY`). |
 | **LangGraph / LangChain** | *Planned* | Agentic orchestration engine | Framework for building stateful, multi-step decision graphs and tool-calling loops. |
@@ -271,8 +272,11 @@ Backend/
 │   └── __init__.py
 ├── tools/                      # [Planned] Business tool wrappers for agent execution
 │   └── __init__.py
-├── rag/                        # [Planned] PDF parsing, chunking, embeddings, and vector retrieval
-│   └── __init__.py
+├── rag/                        # [Partially Implemented] Knowledge document parsing, chunking, embeddings
+│   ├── __init__.py             # [Implemented] Centralized exports of DocumentChunk, chunk_text, PolicyDocumentParser
+│   ├── chunking.py             # [Implemented] DocumentChunk model, sliding-window chunk_text, PolicyDocumentParser
+│   ├── embeddings.py           # [Planned] Text embedding generation (text-embedding-004)
+│   └── retriever.py            # [Planned] Hybrid vector retrieval and FlashRank re-ranking
 ├── memory/                     # [Planned] Session state manager and entity coreference tracker
 │   └── __init__.py
 └── utils/                      # [Planned] Helper functions, formatters, and custom loggers
@@ -439,38 +443,54 @@ Application-level memory orchestration is **Planned** for implementation in `Bac
 
 ## 9. RAG Architecture (Knowledge Retrieval Engine)
 
-### 9.1 Current Implementation (Source Documents)
-The repository contains 7 official corporate policy documents in PDF format in [`data/knowledge_base/`](file:///c:/INTERNSHIP/ResolveX/data/knowledge_base):
-- `refund_policy.pdf` (30-day return conditions, inspection processes)
-- `cancellation_policy.pdf` (Order cancellation windows prior to dispatch)
-- `shipping_policy.pdf` (Standard vs. express delivery timelines, regional rates)
-- `payment_policy.pdf` (Accepted payment methods, failed charges, double-charge resolutions)
-- `account_policy.pdf` (Password resets, security, account management)
-- `faq.pdf` & `support_guidelines.pdf` (Support working hours, SLA definitions, escalation criteria)
-
-### 9.2 Planned Implementation (Ingestion & Retrieval Pipeline)
-The upcoming RAG pipeline is **Planned** to provide grounded answers:
+### 9.1 Ingestion & Parsing Foundation [Phase 1 Implemented]
+The RAG parsing and sliding-window semantic chunking pipeline is **Implemented** in [`Backend/rag/chunking.py`](file:///c:/INTERNSHIP/ResolveX/Backend/rag/chunking.py):
+- **Source Documents**: 7 corporate policy PDFs residing in [`data/knowledge_base/`](file:///c:/INTERNSHIP/ResolveX/data/knowledge_base).
+- **PDF Extraction & Text Cleaning**: Extracted using `pypdf>=4.0.0` with whitespace normalization, control character cleaning (`\x7f` $\rightarrow$ `- `), and unicode replacement sanitization.
+- **Sliding-Window Word Chunking**: `chunk_text()` splits text with a 120-word target window and 30-word semantic overlap ($W=120, O=30, \text{Step}=90$).
+- **Provenance Data Binding**: Every chunk is encapsulated in a validated [`DocumentChunk`](file:///c:/INTERNSHIP/ResolveX/Backend/rag/chunking.py#L14-L31) Pydantic model with deterministic ID, word count, character length, detected section heading, and detailed metadata (`source_file`, `source_path`, `chunk_index`, `total_chunks`, `start_word_index`, `end_word_index`).
 
 ```mermaid
 flowchart TD
-    subgraph PlannedIngestion ["Planned Ingestion Pipeline"]
-        PDFDocs["Source Policy PDFs [Present in data/knowledge_base/]"] --> Parser["PDF & Text Extractor [Planned]"]
-        Parser --> Chunker["Recursive Character Splitter (500 chars, 100 overlap) [Planned]"]
-        Chunker --> Embedder["Embedding Generator (text-embedding-004) [Planned]"]
-        Embedder --> VectorTable[("knowledge_embeddings Table [Planned]")]
+    subgraph ImplementedIngestion ["RAG Ingestion Pipeline [Phase 1 Implemented]"]
+        PDFDocs["7 Policy PDFs (data/knowledge_base/)"] --> Extractor["PolicyDocumentParser.extract_text_from_pdf() (pypdf)"]
+        Extractor --> Cleaner["PolicyDocumentParser.clean_text() (Unicode & Control Chars)"]
+        Cleaner --> Chunker["chunk_text() (Sliding Window: W=120, O=30, Step=90)"]
+        Chunker --> MetaBinder["Provenance Metadata & Section Title Binding"]
+        MetaBinder --> Chunks["12 Validated DocumentChunk Pydantic Models"]
     end
 
-    subgraph PlannedRetrieval ["Planned Retrieval Pipeline"]
+    subgraph PlannedEmbedStorage ["Vector Embedding & Storage [Phase 2 & 3 Planned]"]
+        Chunks --> EmbedGen["text-embedding-004 Generator (768-dim) [Planned]"]
+        EmbedGen --> PGVector[("knowledge_embeddings Table (pgvector) [Planned]")]
+    end
+
+    subgraph PlannedHybridRetrieval ["Hybrid Retrieval & Re-ranking [Phase 4 Planned]"]
         Query["User Policy Question"] --> QueryEmbed["Query Embedder [Planned]"]
-        QueryEmbed --> VectorMatch["Cosine Similarity Search (<=>) [Planned]"]
-        VectorTable --> VectorMatch
-        VectorMatch --> TopChunks["Top-3 Grounded Chunks + Source Citations"]
+        QueryEmbed --> DenseMatch["Dense Cosine Match (<=>) [Planned]"]
+        Query --> SparseMatch["Sparse BM25 Keyword Search [Planned]"]
+        DenseMatch & SparseMatch --> RRF["Reciprocal Rank Fusion [Planned]"]
+        RRF --> ReRank["FlashRank Cross-Encoder Re-Ranking [Planned]"]
+        ReRank --> Eval{"Evidence Evaluator [Planned]"}
+        Eval -->|Sufficient| TopChunks["Top-3 Grounded Chunks + Provenance Citations"]
+        Eval -->|Insufficient| EscalateNode["Safe Domain Escalation / Clarification"]
         TopChunks --> PromptAssembler["Context-Injected System Prompt"]
         PromptAssembler --> LLMGen["Grounded Response Generation"]
     end
 ```
 
-- **Grounding Goal**: Designed to retrieve policy excerpts and provide citations (e.g. `[refund_policy.pdf#Section-2]`) to reduce hallucination and improve factual accuracy.
+### 9.2 Parsed Document & Ingestion Inventory [Implemented]
+
+| Document Filename | Policy Scope / Domain Topics | Clean Word Count | Chunks | Chunk ID Schema | Provenance Metadata Attributes |
+| :--- | :--- | :---: | :---: | :---: | :--- |
+| [`account_policy.pdf`](file:///c:/INTERNSHIP/ResolveX/data/knowledge_base/account_policy.pdf) | Account access, credentials, privacy, escalation | 106 | **1** | `account_policy_000` | `source_file`, `source_path`, `chunk_index: 0`, `total_chunks: 1`, `start_word_index: 0`, `end_word_index: 106` |
+| [`cancellation_policy.pdf`](file:///c:/INTERNSHIP/ResolveX/data/knowledge_base/cancellation_policy.pdf) | Pre-shipment cancellation, post-shipment rules | 95 | **1** | `cancellation_policy_000` | `source_file`, `source_path`, `chunk_index: 0`, `total_chunks: 1`, `start_word_index: 0`, `end_word_index: 95` |
+| [`faq.pdf`](file:///c:/INTERNSHIP/ResolveX/data/knowledge_base/faq.pdf) | Orders, payments, deliveries, general FAQs | 210 | **2** | `faq_000` – `faq_001` | `source_file`, `source_path`, `chunk_index: 0..1`, `total_chunks: 2`, `overlap_words: 30`, word offsets |
+| [`payment_policy.pdf`](file:///c:/INTERNSHIP/ResolveX/data/knowledge_base/payment_policy.pdf) | Verification, failed charges, missing orders | 134 | **2** | `payment_policy_000` – `001` | `source_file`, `source_path`, `chunk_index: 0..1`, `total_chunks: 2`, `overlap_words: 30`, word offsets |
+| [`refund_policy.pdf`](file:///c:/INTERNSHIP/ResolveX/data/knowledge_base/refund_policy.pdf) | 7-day return window, condition criteria, SLA | 179 | **2** | `refund_policy_000` – `001` | `source_file`, `source_path`, `chunk_index: 0..1`, `total_chunks: 2`, `overlap_words: 30`, word offsets |
+| [`shipping_policy.pdf`](file:///c:/INTERNSHIP/ResolveX/data/knowledge_base/shipping_policy.pdf) | Timelines, tracking statuses, delayed delivery | 122 | **2** | `shipping_policy_000` – `001` | `source_file`, `source_path`, `chunk_index: 0..1`, `total_chunks: 2`, `overlap_words: 30`, word offsets |
+| [`support_guidelines.pdf`](file:///c:/INTERNSHIP/ResolveX/data/knowledge_base/support_guidelines.pdf) | Grounded principles, tool limits, escalation | 210 | **2** | `support_guidelines_000` – `001`| `source_file`, `source_path`, `chunk_index: 0..1`, `total_chunks: 2`, `overlap_words: 30`, word offsets |
+| **Total Ingestion Base** | **Full Corporate Knowledge Base** | **1,056** | **12** | **12 DocumentChunks** | **100% Verified Offline Ingestion Coverage** |
 
 ---
 
