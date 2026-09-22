@@ -25,7 +25,7 @@ class DocumentChunk(BaseModel):
     metadata: dict[str, Any] = Field(default_factory=dict, description="Provenance, windowing, and parsing metadata")
 
     model_config = ConfigDict(
-        from_attributes=True,x  
+        from_attributes=True,
         populate_by_name=True,
         str_strip_whitespace=True,
     )

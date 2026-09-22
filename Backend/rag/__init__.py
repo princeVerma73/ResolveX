@@ -9,9 +9,17 @@ from Backend.rag.chunking import (
     PolicyDocumentParser,
     chunk_text,
 )
+from Backend.rag.ingestion import (
+    EmbeddingGenerationError,
+    IngestionPipelineError,
+    PolicyIngestionEngine,
+)
 
 __all__ = [
     "DocumentChunk",
     "chunk_text",
     "PolicyDocumentParser",
+    "PolicyIngestionEngine",
+    "EmbeddingGenerationError",
+    "IngestionPipelineError",
 ]
