@@ -14,6 +14,11 @@ from Backend.rag.ingestion import (
     IngestionPipelineError,
     PolicyIngestionEngine,
 )
+from Backend.rag.retrieval import (
+    HybridRetriever,
+    RetrievalError,
+    RetrievedChunk,
+)
 
 __all__ = [
     "DocumentChunk",
@@ -22,4 +27,8 @@ __all__ = [
     "PolicyIngestionEngine",
     "EmbeddingGenerationError",
     "IngestionPipelineError",
+    "HybridRetriever",
+    "RetrievedChunk",
+    "RetrievalError",
 ]
+

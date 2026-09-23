@@ -1414,3 +1414,269 @@ flowchart LR
 
 ---
 
+## Step 5 — Phase 3: Hybrid Search (Dense + Sparse Retrieval)
+
+### 1. Architectural Overview & Parallel Dispatch
+
+Phase 3 introduces the **Dual-Stream Hybrid Retrieval Engine** (`HybridRetriever`) in [`Backend/rag/retrieval.py`](file:///c:/INTERNSHIP/ResolveX/Backend/rag/retrieval.py), bridging dense geometric vector embeddings and sparse lexical full-text search into a parallel search pipeline:
+
+- **WHAT**: Simultaneous, non-blocking execution of **Dense Semantic Vector Search** (via HNSW and `vector_cosine_ops`) and **Sparse Lexical Full-Text Search** (via GIN and `ts_rank_cd`) querying against the unified `knowledge_embeddings` table.
+- **WHY**:
+  - **Dense Retrieval** excels at capturing semantic intent, synonyms, fuzzy questions, and natural-language paraphrases (e.g., *"How do I get my cash back?"* $\rightarrow$ matches *"refund eligibility within 7 days"*), but struggles with exact alphanumeric identifiers, rare acronyms, and strict policy codes.
+  - **Sparse Retrieval** excels at exact lexical tokens, error codes, tracking numbers, specific policy clauses, and proper nouns (e.g., *"POL-001"*, *"7 days"*, *"Razorpay"*), but fails on conceptual paraphrasing and vocabulary mismatches.
+  - **Hybrid Synergy**: Running both search branches concurrently guarantees high recall for both broad conversational queries and pinpoint policy inquiries.
+- **HOW**:
+  - The query is dispatched to two asynchronous / concurrent execution paths in parallel using worker threads (`ThreadPoolExecutor`) or `asyncio.gather`:
+    1. **Dense Path**: Generates a 768-dimensional query embedding via `embed_query(query, task_type="RETRIEVAL_QUERY")` and queries Supabase via pgvector cosine distance (`<=>`).
+    2. **Sparse Path**: Converts raw text into a safe PostgreSQL search query using `websearch_to_tsquery` and ranks matches using cover density ranking (`ts_rank_cd`).
+  - Both result candidate sets are scored and returned as structured [`RetrievedChunk`](file:///c:/INTERNSHIP/ResolveX/Backend/rag/retrieval.py#L42-L65) instances.
+
+```mermaid
+flowchart TD
+    Query["Customer / Agent Query\n(e.g., 'What is the refund timeline for damaged items?')"]
+
+    subgraph ParallelDispatch ["Parallel Retrieval Dispatch (HybridRetriever)"]
+        direction LR
+        subgraph DenseStream ["Dense Vector Stream"]
+            Embedder["Query Embedder\n(text-embedding-004)\ntask_type = 'RETRIEVAL_QUERY'\noutput_dimensionality = 768"]
+            HNSWSearch["HNSW Vector Search\n(<=> Cosine Distance)\nmatch_knowledge_dense()"]
+            DenseResults["Dense Candidates\n(Top-20 RetrievedChunk, score = 1 - dist)"]
+        end
+
+        subgraph SparseStream ["Sparse Lexical Stream"]
+            QueryParser["Lexical Parser\nwebsearch_to_tsquery('english', query)"]
+            GINSearch["GIN Full-Text Search\n(ts_rank_cd Cover Density)\nmatch_knowledge_sparse()"]
+            SparseResults["Sparse Candidates\n(Top-20 RetrievedChunk, score = ts_rank_cd)"]
+        end
+    end
+
+    subgraph AggregationLayer ["Output Tuple"]
+        DualOutput["(dense_chunks, sparse_chunks)\nReady for Reciprocal Rank Fusion (RRF) in Phase 4"]
+    end
+
+    Query --> Embedder
+    Query --> QueryParser
+    Embedder --> HNSWSearch
+    QueryParser --> GINSearch
+    HNSWSearch --> DenseResults
+    GINSearch --> SparseResults
+    DenseResults --> DualOutput
+    SparseResults --> DualOutput
+```
+
+---
+
+### 2. Dense Retrieval Deep Dive
+
+#### Query Embedding Generation: Asymmetric Embedding Manifolds
+In dense information retrieval, document passages and user search queries serve fundamentally different semantic roles:
+- **Documents** are long, declarative, explanatory statements rich with structured domain terminology.
+- **Queries** are short, interrogative, fragmented, or question-oriented phrases.
+
+If both texts are embedded symmetrically using the same representation mapping, retrieval performance degrades because questions do not resemble answers in standard feature space.
+
+To solve this, Google's `text-embedding-004` uses **explicit asymmetric task-type conditioning**:
+1. **Document Indexing (Phase 2)**: Embedded with `task_type="RETRIEVAL_DOCUMENT"`.
+2. **Query Searching (Phase 3)**: Embedded with `task_type="RETRIEVAL_QUERY"`.
+
+```mermaid
+flowchart LR
+    subgraph QueryManifold ["Query Feature Manifold"]
+        Q["User Query: 'cancel before shipment?'\ntask_type = RETRIEVAL_QUERY"]
+    end
+
+    subgraph SharedSpace ["Asymmetric Metric Space"]
+        T["Learned Asymmetric Metric Projection\nMTEB State-of-the-Art Transformation"]
+    end
+
+    subgraph DocManifold ["Document Feature Manifold"]
+        D["Policy Passage: 'Orders can be cancelled before dispatch...'\ntask_type = RETRIEVAL_DOCUMENT"]
+    end
+
+    Q --> T
+    D --> T
+    T --> Cosine["High Cosine Similarity (<=> distance ~ 0.05)"]
+```
+
+The embedding model projects queries and documents onto complementary sub-manifolds such that an interrogative query vector has minimal cosine distance to the declarative document vector containing its answer.
+
+#### Distance Logic: Cosine Distance Operator (`<=>`)
+In PostgreSQL `pgvector`, the cosine distance between two 768-dimensional vectors $\mathbf{u}$ and $\mathbf{v}$ is defined as:
+
+$$\mathcal{D}_{\text{cosine}}(\mathbf{u}, \mathbf{v}) = 1 - \frac{\mathbf{u} \cdot \mathbf{v}}{\|\mathbf{u}\|_2 \|\mathbf{v}\|_2} = 1 - \frac{\sum_{i=1}^{768} u_i v_i}{\sqrt{\sum_{i=1}^{768} u_i^2} \sqrt{\sum_{i=1}^{768} v_i^2}}$$
+
+- **Operator**: `<=>` returns value in range $[0, 2]$ (where $0.0$ indicates identical orientation, and $1.0$ indicates orthogonality).
+- **Similarity Score Conversion**:
+  $$\text{score}_{\text{dense}} = 1.0 - \mathcal{D}_{\text{cosine}}(\mathbf{u}, \mathbf{v}) = \frac{\mathbf{u} \cdot \mathbf{v}}{\|\mathbf{u}\|_2 \|\mathbf{v}\|_2}$$
+- **Candidate Limit ($K_{\text{dense}} = 20$)**: Dense retrieval extracts the top 20 nearest neighbors from the HNSW graph, ensuring high initial candidate recall before reciprocal reranking.
+
+---
+
+### 3. Sparse Retrieval Deep Dive
+
+#### Lexical Query Parsing: `websearch_to_tsquery` vs Alternatives
+
+PostgreSQL provides several parser functions for converting raw text strings into `tsquery` objects for full-text evaluation against `tsvector`:
+
+| Parser Function | Operator Syntax Supported | Behavior on Punctuation / Errors | Usability for End-User Search |
+| :--- | :--- | :--- | :--- |
+| **`to_tsquery('english', query)`** | Explicit boolean tokens (`&`, `\|`, `!`, `<->`) | **Throws runtime syntax error** on unescaped punctuation, parentheses, or trailing spaces. | **Unsafe** for direct user input. |
+| **`plainto_tsquery('english', query)`** | Joins all words with `&` (AND logic) | Ignores punctuation, but does not support phrases (`"..."`) or negation (`-`). | Safe, but lacks boolean expressiveness. |
+| **`websearch_to_tsquery('english', query)`** *(Selected)* | Google-style search syntax: `"exact phrase"`, `or`, `-negation` | **Never throws syntax errors**; gracefully parses malformed queries, symbols, quotes, and punctuation. | **Optimal & Production-Grade**. |
+
+ResolveX adopts `websearch_to_tsquery('english', query)` to provide robust, human-tolerant query parsing:
+- `"refund policy"` searches for exact adjacent phrase matching.
+- `refund or return` matches either lexical term.
+- `damaged -opened` matches "damaged" while penalizing "opened".
+- Malformed inputs like `???$$% refund !!!` parse cleanly to `'refund'` without SQL syntax exceptions.
+
+#### Scoring Metric: Cover Density Ranking (`ts_rank_cd`)
+Unlike standard TF-IDF or naive term-frequency counters (`ts_rank`), ResolveX uses **Cover Density Ranking (`ts_rank_cd`)** against the GIN-indexed `tsv_content` column:
+
+$$\text{Score}_{\text{cover\_density}} = \sum_{p \in \text{passages}} \frac{1}{\text{span\_length}(p)}$$
+
+- **Intuition**: Rather than merely counting how many times query words appear anywhere in a document, `ts_rank_cd` rewards documents where all matching query words appear in **close physical proximity** to each other within the chunk text.
+- **Candidate Limit ($K_{\text{sparse}} = 20$)**: Sparse retrieval extracts the top 20 cover-density-ranked chunks from the GIN inverted index.
+
+---
+
+### 4. Comparison Matrix & Trade-offs
+
+| Capability / Attribute | **Dense Retrieval (Semantic)** | **Sparse Retrieval (Lexical)** | **Hybrid Retrieval (Dual-Stream)** |
+| :--- | :--- | :--- | :--- |
+| **Semantic Generalization** | **Exceptional** (finds concepts across synonyms and rephrasings) | **Poor** (fails if exact tokens do not match) | **Exceptional** (Dense branch covers synonyms) |
+| **Alphanumeric Codes & Policy IDs** | **Moderate to Poor** (vectors smooth over rare tokens) | **Exceptional** (exact inverted index token match) | **Exceptional** (Sparse branch pinpoints codes) |
+| **Out-of-Vocabulary (OOV) Terms** | **Moderate** (approximates via subwords) | **Exact Match** (tokenized word roots) | **High Recall** across both familiar and rare terms |
+| **Typo Tolerance** | **High** (semantic neighborhood stability) | **Low** (requires exact stem match) | **High** (Dense branch compensates for typos) |
+| **Exact Phrase Matching** | **Moderate** | **High** (via `websearch_to_tsquery` quotes) | **High** |
+| **Query Latency** | ~10–18ms (embedding API + HNSW traversal) | ~2–5ms (GIN inverted index lookup) | **~12–20ms** (dispatched in parallel) |
+| **Failure Vulnerability** | Embedding API outage / rate limits | Token mismatch / query parsing syntax | **Resilient** (fault-isolated fallback) |
+
+---
+
+### 5. Fault Isolation & Latency Targets
+
+#### Performance Targets
+- **Dense Embedding Generation**: $\le 15\,\text{ms}$ (via Google GenAI embedding API).
+- **HNSW Cosine Traversal**: $\le 3\,\text{ms}$ over 768-dim indexed vectors.
+- **GIN Sparse Full-Text Query**: $\le 2\,\text{ms}$ over stored `tsvector`.
+- **Total End-to-End Parallel Retrieval**: $\mathbf{\le 20\,\text{ms}}$ target at p95.
+
+#### Fault Isolation & Graceful Degradation Strategy
+The hybrid retriever is designed with **zero single points of failure**:
+
+```mermaid
+flowchart TD
+    Request["Hybrid Search Request"]
+
+    subgraph ResilienceOrchestrator ["Fault-Isolated Dispatcher"]
+        subgraph BranchA ["Dense Branch"]
+            DenseCall["embed_query() + dense_search()"]
+            DenseErrCatch["Exception Handler:\nCatch HTTP 429/500/API Errors\nLog Warning\nReturn []"]
+        end
+
+        subgraph BranchB ["Sparse Branch"]
+            SparseCall["sparse_search()"]
+            SparseErrCatch["Exception Handler:\nCatch DB/Syntax Errors\nLog Warning\nReturn []"]
+        end
+    end
+
+    subgraph MergeLogic ["Result Verification"]
+        CheckResult{"Both Empty?"}
+        Raise["Raise DatabaseOperationError / RetrievalError"]
+        Return["Return Available Results\n(Dense Only, Sparse Only, or Both)"]
+    end
+
+    Request --> DenseCall
+    Request --> SparseCall
+    DenseCall -->|Error| DenseErrCatch
+    SparseCall -->|Error| SparseErrCatch
+    DenseCall -->|Success| CheckResult
+    SparseCall -->|Success| CheckResult
+    DenseErrCatch --> CheckResult
+    SparseErrCatch --> CheckResult
+    CheckResult -->|Yes| Raise
+    CheckResult -->|No| Return
+```
+
+1. **Dense Outage / Rate Limit (HTTP 429 / 503)**:
+   - If the GenAI embedding API is temporarily unavailable, the dense branch catches the exception, logs a diagnostic warning, and returns an empty list `[]`.
+   - The sparse branch completes uninterrupted, providing full lexical retrieval results to downstream components.
+2. **Sparse Error / Corrupted Query**:
+   - If a complex or unparseable query fails full-text execution, the sparse branch returns `[]`, while the dense branch returns semantic vector matches.
+3. **Total Pipeline Guard**:
+   - Only when *both* branches fail simultaneously does the engine raise an operational exception, ensuring maximum uptime for user conversations.
+
+---
+
+### 6. Code Architecture & Component Reference
+
+```mermaid
+flowchart LR
+    HR["HybridRetriever\n(Backend/rag/retrieval.py)"]
+    RC["RetrievedChunk (BaseModel)\n(chunk_id, doc, section, content, score, retrieval_type)"]
+    
+    HR -->|1. embed_query()| GenAI["Google GenAI SDK\n(task_type = 'RETRIEVAL_QUERY')"]
+    HR -->|2. dense_search()| DenseRPC["match_knowledge_dense\n(<=> Cosine Distance)"]
+    HR -->|3. sparse_search()| SparseRPC["match_knowledge_sparse\n(websearch_to_tsquery + ts_rank_cd)"]
+    HR -->|4. retrieve_parallel()| ThreadPool["Concurrent Executor / asyncio"]
+    ThreadPool -->|tuple[dense, sparse]| Output["tuple[list[RetrievedChunk], list[RetrievedChunk]]"]
+```
+
+#### Detailed Code Changes Breakdown
+
+| File Name | Class / Method | What Changed | Why It Was Needed | How It Works |
+| :--- | :--- | :--- | :--- | :--- |
+| [`Backend/rag/retrieval.py`](file:///c:/INTERNSHIP/ResolveX/Backend/rag/retrieval.py) [NEW] | `RetrievedChunk` | Defined typed Pydantic domain model for retrieval outputs | Standardizes data contract across dense and sparse paths | Validates `chunk_id`, `document_name`, `score`, and `retrieval_type` |
+| [`Backend/rag/retrieval.py`](file:///c:/INTERNSHIP/ResolveX/Backend/rag/retrieval.py) [NEW] | `HybridRetriever` | Implemented complete dual-stream retrieval engine | Unifies semantic and lexical search | Coordinates embedding generation, PostgREST/RPC queries, and parallel execution |
+| [`Backend/rag/retrieval.py`](file:///c:/INTERNSHIP/ResolveX/Backend/rag/retrieval.py) [NEW] | `embed_query` | Query vector generator with `task_type="RETRIEVAL_QUERY"` | Generates 768-dim asymmetric query vectors | Calls `client.models.embed_content` with exponential backoff |
+| [`Backend/rag/retrieval.py`](file:///c:/INTERNSHIP/ResolveX/Backend/rag/retrieval.py) [NEW] | `dense_search` | Executes pgvector cosine similarity search | Finds top-$K$ semantic neighbors | Calls Supabase RPC `match_knowledge_dense` with candidate limit $K=20$ |
+| [`Backend/rag/retrieval.py`](file:///c:/INTERNSHIP/ResolveX/Backend/rag/retrieval.py) [NEW] | `sparse_search` | Executes full-text search with cover density ranking | Finds top-$K$ lexical token matches | Calls Supabase RPC `match_knowledge_sparse` with `websearch_to_tsquery` |
+| [`Backend/rag/retrieval.py`](file:///c:/INTERNSHIP/ResolveX/Backend/rag/retrieval.py) [NEW] | `retrieve_parallel` | Concurrent search orchestrator with fault isolation | Executes dense and sparse streams simultaneously | Uses `ThreadPoolExecutor` or `asyncio.gather`, returns `(dense, sparse)` |
+| [`database/migrations/003_hybrid_retrieval_rpcs.sql`](file:///c:/INTERNSHIP/ResolveX/database/migrations/003_hybrid_retrieval_rpcs.sql) [NEW] | RPC Functions | Stored SQL functions for dense and sparse matching | High-performance in-database vector and text scoring | Defines `match_knowledge_dense` and `match_knowledge_sparse` with index acceleration |
+| [`Backend/rag/__init__.py`](file:///c:/INTERNSHIP/ResolveX/Backend/rag/__init__.py) | Module Exports | Exported `HybridRetriever` and `RetrievedChunk` | Clean public imports for RAG package | Adds `HybridRetriever` and `RetrievedChunk` to `__all__` |
+| [`tests/test_rag_retrieval.py`](file:///c:/INTERNSHIP/ResolveX/tests/test_rag_retrieval.py) [NEW] | Test Suite | Comprehensive unit, edge-case, and parallel tests | Verifies dual search paths, ranking, and fault isolation | Mocks GenAI/Supabase and tests live retrieval execution |
+
+---
+
+### 7. Beginner-Friendly Dry Runs
+
+#### Dry Run 1: Parallel Hybrid Retrieval Flow
+- **Input Query**: `"What happens if my payment was deducted but the order failed?"`
+- **Execution Step-by-Step**:
+  1. `retriever.retrieve_parallel(query, limit=20)` is called.
+  2. Dispatches two concurrent worker threads:
+     - **Worker 1 (Dense)**:
+       * Generates 768-dim query vector using `task_type="RETRIEVAL_QUERY"`.
+       * Executes `match_knowledge_dense(vector, match_count=20)`.
+       * Returns top matches: `refund_policy_001` (similarity: 0.89), `payment_policy_000` (similarity: 0.84).
+     - **Worker 2 (Sparse)**:
+       * Parses query with `websearch_to_tsquery('english', 'payment was deducted order failed')`.
+       * Executes `match_knowledge_sparse(query, match_count=20)` using `ts_rank_cd`.
+       * Returns top matches: `refund_policy_001` (score: 0.42), `payment_policy_001` (score: 0.38).
+  3. Joins both worker outputs without blocking.
+- **Output**:
+  ```python
+  (
+      [
+          RetrievedChunk(chunk_id="refund_policy_001", score=0.89, retrieval_type="dense", ...),
+          RetrievedChunk(chunk_id="payment_policy_000", score=0.84, retrieval_type="dense", ...),
+      ],
+      [
+          RetrievedChunk(chunk_id="refund_policy_001", score=0.42, retrieval_type="sparse", ...),
+          RetrievedChunk(chunk_id="payment_policy_001", score=0.38, retrieval_type="sparse", ...),
+      ]
+  )
+  ```
+
+#### Dry Run 2: Fault Tolerance on Dense API Failure
+- **Input Query**: `"POL-001 cancellation terms"`
+- **Execution Step-by-Step**:
+  1. `retrieve_parallel(query)` initiates both branches.
+  2. Worker 1 (Dense) encounters a transient HTTP 500 error from embedding endpoint.
+  3. Worker 1 logs warning: `"Dense retrieval stream encountered an error; falling back to sparse stream."` and yields `[]`.
+  4. Worker 2 (Sparse) successfully finds `cancellation_policy_000` via lexical match on `"POL-001"`.
+  5. The pipeline gracefully completes and returns `([], [RetrievedChunk(chunk_id="cancellation_policy_000", ...)])` rather than crashing.
+- **Result**: Zero disruption to end-user ticket resolution.
+
+---
