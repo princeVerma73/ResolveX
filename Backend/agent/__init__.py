@@ -4,6 +4,7 @@ Provides LangGraph multi-agent state definitions, structured intent classificati
 specialized domain sub-agents, and deterministic action tools.
 """
 
+from Backend.agent.graph import SupportAgentOrchestrator
 from Backend.agent.nodes import (
     action_engine_node,
     db_lookup_node,
@@ -28,5 +29,7 @@ __all__ = [
     "db_lookup_node",
     "action_engine_node",
     "escalation_node",
+    "SupportAgentOrchestrator",
 ]
+
 

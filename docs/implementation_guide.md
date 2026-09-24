@@ -7,16 +7,16 @@
 ## Overview of Implementation Roadmap
 
 | Step | Topic | Status | Description |
-| :--- | :--- | :---: | :--- |
-| **Step 1** | Supabase Project Setup | **Completed** | Managed PostgreSQL backend initialization for persistent storage & vector search. |
-| **Step 2** | Supabase Backend Connection | **Completed** | Reusable Python Supabase client module, environment variable loading, and connectivity test. |
-| **Step 3** | Database Schema & Migrations | **Completed** | Core relational tables (customers, orders, items, payments, chat sessions, messages, tickets) and indexes. |
-| **Step 4** | Core Domain Models & Services | **Completed** | Pydantic v2 schemas (Phases 1-2), Service Foundation (Phase 3), and Database CRUD Services (Phase 4). |
-| **Step 5** | RAG Pipeline & Vector Search | **Completed** | Document ingestion, chunking, embeddings, hybrid retrieval, RRF/cross-encoder reranking, and grounded generation. |
-| **Step 6** | LangGraph Agents & Tools | *Pending* | Triage, Orders, Technical Support, and Escalation agents. |
+| :--- | :--- | :--- | :--- |
+| Step 1 | Supabase Project Setup | Completed | Managed PostgreSQL backend initialization for persistent storage & vector search. |
+| Step 2 | Supabase Backend Connection | Completed | Reusable Python Supabase client module, environment variable loading, and connectivity test. |
+| Step 3 | Database Schema & Migrations | Completed | Core relational tables (customers, orders, items, payments, chat sessions, messages, tickets) and indexes. |
+| Step 4 | Core Domain Models & Services | Completed | Pydantic v2 schemas (Phases 1-2), Service Foundation (Phase 3), and Database CRUD Services (Phase 4). |
+| Step 5 | RAG Pipeline & Vector Search | Completed | Document ingestion, chunking, embeddings, hybrid retrieval, RRF/cross-encoder reranking, and grounded generation. |
+| Step 6 | LangGraph Agents & Tools | In Progress | Triage, Orders, Technical Support, and Escalation agents. |
+| Step 7 | API Layer & WebSocket Chat | Pending | FastAPI routes and real-time streaming endpoints. |
+| Step 8 | Frontend Dashboard | Pending | Interactive user and support agent interfaces. |
 
-| **Step 7** | API Layer & WebSocket Chat | *Pending* | FastAPI routes and real-time streaming endpoints. |
-| **Step 8** | Frontend Dashboard | *Pending* | Interactive user and support agent interfaces. |
 
 ---
 
@@ -2071,8 +2071,8 @@ flowchart LR
 | :--- | :--- | :---: | :--- |
 | **Phase 1** | Agent State & Structured Intent Router | **Completed** | Strict Intent taxonomy (`POLICY_INQUIRY`, `DATABASE_LOOKUP`, `ACTION_EXECUTION`, `GENERAL_ESCALATION`), entity extraction, and state modeling. |
 | **Phase 2** | Decoupled Tool Registry & Execution Node Handlers | **Completed** | Decoupled execution node workers (`policy_rag_node`, `db_lookup_node`, `action_engine_node`, `escalation_node`) operating over `AgentState`. |
-| **Phase 3** | Deterministic Tool Binding & Safe Actions | *Pending* | Validated tool execution wrappers with transaction rollbacks, idempotency keys, and audit trails. |
-| **Phase 4** | End-to-End Orchestration & Guardrails | *Pending* | Multi-turn memory persistence, safety filters, hallucination monitors, and automated resolution synthesizers. |
+| **Phase 3** | StateGraph Orchestration & Conditional Pipeline | **Completed** | End-to-end `SupportAgentOrchestrator` compiling LangGraph `StateGraph(AgentState)` with dynamic branching, multi-turn history propagation, and async execution. |
+| **Phase 4** | End-to-End Guardrails & Memory Persistence | *Pending* | Multi-turn memory persistence, safety filters, hallucination monitors, and automated resolution synthesizers. |
 
 ---
 
@@ -2398,4 +2398,112 @@ flowchart TD
   - `state.final_response`: `"Order ORD-1001 cannot be cancelled because it has already been delivered. You may request a return or refund instead."`
 
 ---
+
+## Step 6 — Phase 3: StateGraph Orchestration & Conditional Execution Pipeline
+
+### 1. Architectural Overview & Responsibility
+
+Phase 3 implements the **Central LangGraph StateGraph Orchestrator** ([`Backend/agent/graph.py`](file:///c:/INTERNSHIP/ResolveX/Backend/agent/graph.py)) that connects the Intent Router, conditional routing edges, specialized execution worker nodes, and multi-turn state persistence into a single unified execution graph:
+
+- **WHAT**:
+  - **`SupportAgentOrchestrator`**: Central multi-agent orchestrator compiling a LangGraph `StateGraph(AgentState)` pipeline.
+  - **Conditional Execution Edges**: Dynamically branches incoming traffic from the router to the appropriate worker node based on `state.route_decision.intent`.
+  - **Synchronous & Asynchronous Interfaces**: Exposes `run(...)` for standard workflows and `arun(...)` for non-blocking FastAPI and WebSocket endpoints.
+  - **Multi-Turn Message Propagation**: Automatically persists user questions and synthesized responses into `state.messages`, ensuring conversational continuity across turns.
+- **WHY**:
+  - **Single Entry / Single Exit Contract**: Eliminates spaghetti if-else orchestration logic across backend endpoints.
+  - **Auditability & Observability**: Every conversational turn produces a fully populated, serializable [`AgentState`](file:///c:/INTERNSHIP/ResolveX/Backend/agent/state.py) showing routing confidence, entity extractions, intermediate worker data, and final answers.
+  - **Deterministic Termination**: Every conditional branch strictly converges to LangGraph's `END` node, preventing infinite execution loops or hung connections.
+- **HOW**:
+  - Compiles LangGraph `StateGraph` with an initial `router` node, conditional branching edges, 4 worker nodes (`policy_rag`, `db_lookup`, `action_engine`, `escalation`), and terminal convergence to `END`.
+
+```mermaid
+flowchart TD
+    Start([User Interaction Turn]) --> RouterNode["1. Router Node\n(IntentRouter.classify_intent)"]
+
+    RouterNode --> RouteCondition{"2. Conditional Dynamic Edge\n(state.route_decision.intent)"}
+
+    RouteCondition -->|POLICY_INQUIRY| PolicyWorker["3a. Policy RAG Node\n(Hybrid Search -> RRF -> CrossEncoder -> GenAI)"]
+    RouteCondition -->|DATABASE_LOOKUP| DBWorker["3b. DB Lookup Node\n(OrderService / TicketService / CustomerService)"]
+    RouteCondition -->|ACTION_EXECUTION| ActionWorker["3c. Action Engine Node\n(Order Cancellation / Refund Processing)"]
+    RouteCondition -->|GENERAL_ESCALATION| EscalateWorker["3d. Escalation Node\n(Human Specialist Dispatch)"]
+
+    PolicyWorker --> GraphEnd([END: Return Updated AgentState])
+    DBWorker --> GraphEnd
+    ActionWorker --> GraphEnd
+    EscalateWorker --> GraphEnd
+```
+
+---
+
+### 2. Conditional Routing Logic & Graph Branches
+
+#### Dynamic Intent Edge Mapping
+
+```python
+def _route_intent(state: AgentState | dict) -> str:
+    decision = state.route_decision if isinstance(state, AgentState) else state.get("route_decision")
+    intent = getattr(decision, "intent", None) or (decision.get("intent") if isinstance(decision, dict) else None)
+    
+    if intent == IntentType.POLICY_INQUIRY:
+        return "policy_rag"
+    elif intent == IntentType.DATABASE_LOOKUP:
+        return "db_lookup"
+    elif intent == IntentType.ACTION_EXECUTION:
+        return "action_engine"
+    elif intent == IntentType.GENERAL_ESCALATION:
+        return "escalation"
+    return "escalation"
+```
+
+| Route Key | Intent Taxonomy Match | Target Execution Node | Fallback Behavior |
+| :--- | :--- | :--- | :--- |
+| `"policy_rag"` | `POLICY_INQUIRY` | `policy_rag_node` | Grounded RAG or escalation fallback |
+| `"db_lookup"` | `DATABASE_LOOKUP` | `db_lookup_node` | DB query or missing ID clarification |
+| `"action_engine"` | `ACTION_EXECUTION` | `action_engine_node` | Guarded mutation or missing ID clarification |
+| `"escalation"` | `GENERAL_ESCALATION` | `escalation_node` | Direct human support handoff |
+
+---
+
+### 3. Session & Multi-Turn State Propagation
+
+#### Conversational Memory Threading
+When `orchestrator.run(query, session_id, customer_id, history)` is executed:
+1. Ingests or instantiates an [`AgentState`](file:///c:/INTERNSHIP/ResolveX/Backend/agent/state.py) containing existing `messages` history.
+2. The router leverages the previous conversation turns (up to 5 turns) for context-aware classification and pronoun resolution (e.g., *"Please cancel it"* referencing order `"ORD-1234"` from the previous turn).
+3. Post-execution, the orchestrator updates `state.messages`:
+   - Appends `{"role": "user", "content": query}`.
+   - Appends `{"role": "assistant", "content": state.final_response}`.
+4. Returns the complete state object ready for Supabase chat session persistence.
+
+---
+
+### 4. Code Architecture & Component Reference
+
+#### Detailed Code Changes Breakdown
+
+| File Name | Class / Function | What Changed | Why It Was Needed | How It Works |
+| :--- | :--- | :--- | :--- | :--- |
+| [`Backend/agent/graph.py`](file:///c:/INTERNSHIP/ResolveX/Backend/agent/graph.py) [NEW] | `SupportAgentOrchestrator` | Implemented central multi-agent LangGraph orchestrator | Single-entry orchestration layer for backend APIs | Builds `StateGraph(AgentState)`, wires conditional edges, and executes sync/async runs |
+| [`Backend/agent/__init__.py`](file:///c:/INTERNSHIP/ResolveX/Backend/agent/__init__.py) | Module Exports | Exported `SupportAgentOrchestrator` | Clean public package interface | Adds orchestrator to package `__all__` |
+| [`tests/test_agent_orchestrator.py`](file:///c:/INTERNSHIP/ResolveX/tests/test_agent_orchestrator.py) [NEW] | Test Suite | Unit & end-to-end integration tests for graph pipeline | Verifies all 4 intent paths, multi-turn history, and async execution | Mocks services and tests full graph convergence |
+
+---
+
+### 5. Beginner-Friendly Dry Runs
+
+#### Dry Run 1: Multi-Turn Conversation Continuity
+- **Turn 1**:
+  - Query: *"Where is my order ORD-8832?"*
+  - Router classifies `DATABASE_LOOKUP` with `order_id="ORD-8832"`.
+  - DB Worker returns: *"Order ORD-8832 is currently PROCESSING."*
+  - Messages history: `[{"role": "user", "content": "Where is my order ORD-8832?"}, {"role": "assistant", "content": "Order ORD-8832 is currently PROCESSING."}]`.
+- **Turn 2**:
+  - Query: *"Please cancel it for me"* (referencing previous order).
+  - Router uses conversational history and extracts `order_id="ORD-8832"` and `action_type="cancel_order"`.
+  - Action Worker cancels order and returns: *"Order ORD-8832 has been successfully cancelled."*
+  - Final State: `state.action_results["new_status"] == "CANCELLED"`.
+
+---
+
 
