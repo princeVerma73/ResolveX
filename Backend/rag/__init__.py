@@ -14,6 +14,11 @@ from Backend.rag.ingestion import (
     IngestionPipelineError,
     PolicyIngestionEngine,
 )
+from Backend.rag.reranking import (
+    CrossEncoderReranker,
+    RankedChunk,
+    reciprocal_rank_fusion,
+)
 from Backend.rag.retrieval import (
     HybridRetriever,
     RetrievalError,
@@ -30,5 +35,9 @@ __all__ = [
     "HybridRetriever",
     "RetrievedChunk",
     "RetrievalError",
+    "RankedChunk",
+    "reciprocal_rank_fusion",
+    "CrossEncoderReranker",
 ]
+
 
