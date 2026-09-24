@@ -2070,7 +2070,7 @@ flowchart LR
 | Phase | Focus Area | Status | Description |
 | :--- | :--- | :---: | :--- |
 | **Phase 1** | Agent State & Structured Intent Router | **Completed** | Strict Intent taxonomy (`POLICY_INQUIRY`, `DATABASE_LOOKUP`, `ACTION_EXECUTION`, `GENERAL_ESCALATION`), entity extraction, and state modeling. |
-| **Phase 2** | Specialized LangGraph Agent Sub-Graphs | *Pending* | Domain specialist sub-agents (Orders, Policy RAG, Payments, Escalation) with checkpointed conversational graphs. |
+| **Phase 2** | Decoupled Tool Registry & Execution Node Handlers | **Completed** | Decoupled execution node workers (`policy_rag_node`, `db_lookup_node`, `action_engine_node`, `escalation_node`) operating over `AgentState`. |
 | **Phase 3** | Deterministic Tool Binding & Safe Actions | *Pending* | Validated tool execution wrappers with transaction rollbacks, idempotency keys, and audit trails. |
 | **Phase 4** | End-to-End Orchestration & Guardrails | *Pending* | Multi-turn memory persistence, safety filters, hallucination monitors, and automated resolution synthesizers. |
 
@@ -2230,3 +2230,172 @@ flowchart LR
   3. Downstream action handler checks cancellation policy and executes state mutation safely.
 
 ---
+
+## Step 6 — Phase 2: Decoupled Tool Registry & Execution Node Handlers
+
+### 1. Architectural Overview & Responsibility
+
+Phase 2 implements the **Decoupled Execution Node Handlers** (`Backend/agent/nodes.py`) that consume and mutate [`AgentState`](file:///c:/INTERNSHIP/ResolveX/Backend/agent/state.py) across all 4 specialized workflow branches:
+
+- **WHAT**:
+  - `policy_rag_node`: Invokes Step 5 RAG pipeline components (`HybridRetriever`, `reciprocal_rank_fusion`, `CrossEncoderReranker`, `ResolutionGenerator`) to answer policy inquiries with machine-verifiable citations.
+  - `db_lookup_node`: Dispatches extracted entities (`order_id`, `ticket_id`, `customer_id`, `email`) to relational domain services (`OrderService`, `TicketService`, `CustomerService`, `PaymentService`) and formats customer-facing status summaries into `state.final_response`.
+  - `action_engine_node`: Executes mutative actions (`cancel_order`, `request_refund`) with pre-condition business invariant validations, writing mutation receipts into `state.action_results`.
+  - `escalation_node`: Formulates empathetic human handoff messages, flags `state.is_escalated = True`, and generates support ticket payloads for human agent dispatch.
+- **WHY**:
+  - **Isolation of Operational Concerns**: Decouples non-deterministic generative RAG workflows from transactional database queries and mutative side-effects.
+  - **Single State Invariant (`AgentState -> AgentState`)**: Every node accepts a strongly typed `AgentState` container and returns an updated `AgentState`, enabling seamless composition in LangGraph graphs.
+  - **Testability & Dependency Injection**: Each node accepts optional injected domain services and RAG engine instances, allowing 100% offline, deterministic unit testing without remote database mutations or network overhead.
+- **HOW**:
+  - Input State Transformation $\rightarrow$ Service/Tool Dispatch $\rightarrow$ Output State Hydration.
+
+```mermaid
+flowchart TD
+    StateIn["AgentState\n(current_query, route_decision, entities)"]
+
+    subgraph ExecutionNodeHandlers ["Step 6 - Phase 2: Execution Node Handlers (Backend/agent/nodes.py)"]
+        direction TB
+
+        subgraph PolicyRAGWorker ["policy_rag_node(state)"]
+            Retriever["HybridRetriever\n(Dense + Sparse)"]
+            RRF["reciprocal_rank_fusion()"]
+            Rerank["CrossEncoderReranker\n(FlashRank)"]
+            Gen["ResolutionGenerator\n(Gemini-1.5-Flash)"]
+            Retriever --> RRF --> Rerank --> Gen
+        end
+
+        subgraph DBLookupWorker ["db_lookup_node(state)"]
+            InspectEntities["Inspect Entities\n(order_id, ticket_id, email, customer_id)"]
+            DispatchDB["Query Domain Services\n(OrderService / TicketService / CustomerService)"]
+            FormatSummary["Format Status Summary"]
+            InspectEntities --> DispatchDB --> FormatSummary
+        end
+
+        subgraph ActionEngineWorker ["action_engine_node(state)"]
+            CheckGuards["Pre-condition Invariant Check\n(e.g., delivered order cancellation)"]
+            MutateDB["Execute Transactional Mutation\n(update_order_status / refund)"]
+            RecordAction["Record action_results Receipt"]
+            CheckGuards --> MutateDB --> RecordAction
+        end
+
+        subgraph EscalationWorker ["escalation_node(state)"]
+            FlagEscalation["Set is_escalated = True"]
+            HandoffMsg["Generate Empathetic Support Handoff"]
+            FlagEscalation --> HandoffMsg
+        end
+    end
+
+    StateIn -->|intent == POLICY_INQUIRY| PolicyRAGWorker
+    StateIn -->|intent == DATABASE_LOOKUP| DBLookupWorker
+    StateIn -->|intent == ACTION_EXECUTION| ActionEngineWorker
+    StateIn -->|intent == GENERAL_ESCALATION| EscalationWorker
+
+    PolicyRAGWorker --> StateOut["Enriched AgentState\n(retrieved_chunks, final_response)"]
+    DBLookupWorker --> StateOut2["Enriched AgentState\n(db_lookup_results, final_response)"]
+    ActionEngineWorker --> StateOut3["Enriched AgentState\n(action_results, final_response)"]
+    EscalationWorker --> StateOut4["Enriched AgentState\n(is_escalated=True, final_response)"]
+```
+
+---
+
+### 2. Worker Nodes Deep Dive
+
+#### 1. Policy RAG Worker (`policy_rag_node`)
+- **Responsibility**: End-to-end policy QA pipeline for `POLICY_INQUIRY` routes.
+- **Workflow**:
+  1. Retrieves candidates in parallel via `retriever.retrieve_parallel(query, limit=20)`.
+  2. Fuses dense and sparse rankings with `reciprocal_rank_fusion(dense, sparse, top_n=20)`.
+  3. Re-ranks candidates with cross-encoder `reranker.rerank(query, candidates, top_k=3)`.
+  4. Generates cited answer via `generator.generate_resolution(query, ranked_chunks)`.
+  5. Hydrates `state.retrieved_chunks`, `state.final_response`, `state.is_escalated`, and `state.clarification_needed`.
+- **Fault Recovery**: Catches retrieval/generation exceptions gracefully, setting a safe escalation fallback without terminating the execution graph.
+
+#### 2. DB Lookup Worker (`db_lookup_node`)
+- **Responsibility**: Read-only domain lookups for `DATABASE_LOOKUP` routes.
+- **Workflow**:
+  1. Inspects `state.route_decision.entities` for extracted identifiers (`order_id`, `ticket_id`, `email`, `customer_id`).
+  2. If `order_id` is present: calls `OrderService.get_order_with_details(order_id)` and synthesizes order status, items, tracking numbers, and delivery dates.
+  3. If `ticket_id` is present: calls `TicketService.get_ticket_by_id(ticket_id)` and synthesizes ticket status and assigned agent.
+  4. If `email` is present: calls `CustomerService.get_customer_by_email(email)` and synthesizes customer membership profile.
+  5. If `customer_id` is present: calls `CustomerService.get_customer_by_id(customer_id)`.
+  6. If no entity ID is found: prompts user for clarification (`state.clarification_needed = True`).
+  7. Populates `state.db_lookup_results` with the serialized domain record and sets `state.final_response`.
+
+#### 3. Action Engine Worker (`action_engine_node`)
+- **Responsibility**: Mutative business operations for `ACTION_EXECUTION` routes.
+- **Workflow**:
+  1. Verifies `order_id` is present; if missing, requests user clarification (`clarification_needed=True`).
+  2. Evaluates action type (`cancel_order`, `request_refund`):
+     - **Cancel Order**: Checks current order status. If already `DELIVERED`, rejects mutation safely with customer-facing guidance. If active (`PENDING`, `PROCESSING`), transitions status to `CANCELLED` via `OrderService.update_order_status(order_id, OrderStatus.CANCELLED)`.
+     - **Request Refund**: Queries payment transactions via `PaymentService.get_payments_by_order_id(order_id)`. Updates eligible payments to `REFUNDED` status.
+  3. Records execution outcome in `state.action_results` and populates `state.final_response`.
+
+#### 4. Escalation Worker (`escalation_node`)
+- **Responsibility**: Human supervisor handoff for `GENERAL_ESCALATION` routes or out-of-scope queries.
+- **Workflow**:
+  1. Sets `state.is_escalated = True`.
+  2. Crafts an empathetic human handoff confirmation message in `state.final_response`.
+  3. Formats an escalation dispatch payload in `state.action_results` ready for downstream ticketing or WebSocket agent routing.
+
+---
+
+### 3. Node Error Handling & State Mutations
+
+| Error Scenario | Root Cause | Node Handler Strategy | State Mutation |
+| :--- | :--- | :--- | :--- |
+| **Missing Entity ID** | User asks *"Where is my order?"* without ID | `db_lookup_node` / `action_engine_node` prompts user for order number | `clarification_needed = True`, friendly prompt set in `final_response` |
+| **Resource Not Found** | User provides invalid order `"ORD-9999"` | Caught `ResourceNotFoundError` from domain service | `db_lookup_results["error"] = "..."`, `clarification_needed = True` |
+| **Invalid Operation** | Attempting to cancel already `DELIVERED` order | Caught `InvalidOperationError` from domain service | `action_results = {"status": "failed"}`, polite explanation in `final_response` |
+| **RAG Pipeline Failure** | Quota / network dropout on GenAI embeddings | `policy_rag_node` catches exception | `is_escalated = True`, fallback human handoff message in `final_response` |
+
+---
+
+### 4. Code Architecture & Component Reference
+
+#### Detailed Code Changes Breakdown
+
+| File Name | Class / Function | What Changed | Why It Was Needed | How It Works |
+| :--- | :--- | :--- | :--- | :--- |
+| [`Backend/agent/nodes.py`](file:///c:/INTERNSHIP/ResolveX/Backend/agent/nodes.py) [NEW] | `policy_rag_node` | Implemented RAG execution node | Bridges AgentState with Step 5 RAG pipeline | Runs parallel retrieval, RRF, cross-encoder reranking, and grounded generation |
+| [`Backend/agent/nodes.py`](file:///c:/INTERNSHIP/ResolveX/Backend/agent/nodes.py) [NEW] | `db_lookup_node` | Implemented relational DB lookup node | Queries orders, tickets, and customers | Dispatches entity IDs to domain services and formats user-facing summaries |
+| [`Backend/agent/nodes.py`](file:///c:/INTERNSHIP/ResolveX/Backend/agent/nodes.py) [NEW] | `action_engine_node` | Implemented state mutation node | Executes cancellations and refund requests | Enforces domain invariant checks before updating records |
+| [`Backend/agent/nodes.py`](file:///c:/INTERNSHIP/ResolveX/Backend/agent/nodes.py) [NEW] | `escalation_node` | Implemented human agent handoff node | Escalates unhandled or complex requests | Sets `is_escalated=True` and formats human dispatch payload |
+| [`Backend/agent/__init__.py`](file:///c:/INTERNSHIP/ResolveX/Backend/agent/__init__.py) | Module Exports | Exported 4 execution node functions | Clean public access for LangGraph graph construction | Adds `policy_rag_node`, `db_lookup_node`, `action_engine_node`, `escalation_node` to `__all__` |
+| [`tests/test_agent_nodes.py`](file:///c:/INTERNSHIP/ResolveX/tests/test_agent_nodes.py) [NEW] | Test Suite | Unit tests for all 4 execution nodes | Guarantees deterministic state transformations | Mocks services and RAG components to verify 100% state invariants and edge cases |
+
+---
+
+### 5. Beginner-Friendly Dry Runs
+
+#### Dry Run 1: Policy RAG Node Execution
+- **Initial State**: `AgentState(current_query="What is the return window for clothing?")`
+- **Execution Flow**:
+  1. `policy_rag_node(state)` invokes `HybridRetriever`, `reciprocal_rank_fusion`, and `CrossEncoderReranker`.
+  2. Evaluates top chunk from `return_policy.pdf` (`[ID: ret_001]`).
+  3. `ResolutionGenerator` generates: `"You may return clothing items within 30 days of purchase [ID: ret_001]."`
+- **Final State**:
+  - `state.retrieved_chunks`: `[RankedChunk(chunk_id="ret_001", ...)]`
+  - `state.final_response`: `"You may return clothing items within 30 days of purchase [ID: ret_001]."`
+  - `state.is_escalated`: `False`
+
+#### Dry Run 2: DB Lookup Node with Found Order
+- **Initial State**: `AgentState(current_query="Status of ORD-8832", route_decision=RouteDecision(intent=DATABASE_LOOKUP, entities=ExtractedEntities(order_id="ORD-8832")))`
+- **Execution Flow**:
+  1. `db_lookup_node(state)` inspects `entities.order_id == "ORD-8832"`.
+  2. Dispatches `order_service.get_order_with_details("ORD-8832")`.
+  3. Receives `OrderWithDetailsResponse(order_id="ORD-8832", status="SHIPPED", tracking_number="TRK-101", total_amount=120.0)`.
+- **Final State**:
+  - `state.db_lookup_results`: `{"type": "order", "data": {...}}`
+  - `state.final_response`: `"Order ORD-8832 is currently SHIPPED. Tracking Number: TRK-101. Total Amount: USD 120.00."`
+
+#### Dry Run 3: Action Engine Guarding Delivered Order Cancellation
+- **Initial State**: `AgentState(current_query="Cancel ORD-1001", route_decision=RouteDecision(intent=ACTION_EXECUTION, entities=ExtractedEntities(order_id="ORD-1001", action_type="cancel_order")))`
+- **Execution Flow**:
+  1. `action_engine_node(state)` fetches order `ORD-1001` (`status="DELIVERED"`).
+  2. Pre-condition check detects delivered order cannot be cancelled.
+- **Final State**:
+  - `state.action_results`: `{"status": "failed", "reason": "Cannot cancel delivered order", "order_id": "ORD-1001"}`
+  - `state.final_response`: `"Order ORD-1001 cannot be cancelled because it has already been delivered. You may request a return or refund instead."`
+
+---
+

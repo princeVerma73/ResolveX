@@ -4,6 +4,12 @@ Provides LangGraph multi-agent state definitions, structured intent classificati
 specialized domain sub-agents, and deterministic action tools.
 """
 
+from Backend.agent.nodes import (
+    action_engine_node,
+    db_lookup_node,
+    escalation_node,
+    policy_rag_node,
+)
 from Backend.agent.router import (
     ExtractedEntities,
     IntentRouter,
@@ -18,4 +24,9 @@ __all__ = [
     "ExtractedEntities",
     "RouteDecision",
     "IntentRouter",
+    "policy_rag_node",
+    "db_lookup_node",
+    "action_engine_node",
+    "escalation_node",
 ]
+
