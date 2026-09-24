@@ -2062,3 +2062,171 @@ flowchart LR
 - **Output**: `GroundedResponse(is_escalated=True, clarification_needed=False, citations=[])`.
 
 ---
+
+## Step 6 — LangGraph Multi-Agent Architecture & Specialized Tools
+
+### Overview of Step 6 Phases
+
+| Phase | Focus Area | Status | Description |
+| :--- | :--- | :---: | :--- |
+| **Phase 1** | Agent State & Structured Intent Router | **Completed** | Strict Intent taxonomy (`POLICY_INQUIRY`, `DATABASE_LOOKUP`, `ACTION_EXECUTION`, `GENERAL_ESCALATION`), entity extraction, and state modeling. |
+| **Phase 2** | Specialized LangGraph Agent Sub-Graphs | *Pending* | Domain specialist sub-agents (Orders, Policy RAG, Payments, Escalation) with checkpointed conversational graphs. |
+| **Phase 3** | Deterministic Tool Binding & Safe Actions | *Pending* | Validated tool execution wrappers with transaction rollbacks, idempotency keys, and audit trails. |
+| **Phase 4** | End-to-End Orchestration & Guardrails | *Pending* | Multi-turn memory persistence, safety filters, hallucination monitors, and automated resolution synthesizers. |
+
+---
+
+## Step 6 — Phase 1: Agent State & Structured LLM Intent Router
+
+### 1. Architectural Overview & Responsibility
+
+Phase 1 establishes the **Central Orchestration & Intent Classification Layer** (`Backend/agent/state.py` and `Backend/agent/router.py`) that serves as the entry point for all multi-turn conversational interactions in ResolveX:
+
+- **WHAT**:
+  - **Structured LLM Intent Router (`IntentRouter`)**: Classifies incoming customer messages into a strict, mutually exclusive 4-way intent taxonomy while concurrently extracting relevant operational entities (`order_id`, `email`, `customer_id`, `policy_topic`, `action_type`).
+  - **Shared Agent State Model (`AgentState`)**: Standardized data structure that propagates conversational messages, routing decisions, entity buffers, tool execution outputs, RAG context, and resolution payloads throughout the multi-agent graph.
+- **WHY**:
+  1. **Decoupling Natural Language from Deterministic Workflows**: Customers express intentions in unpredictable, fuzzy natural language. The router translates ambiguity into strongly typed, machine-verifiable routing contracts.
+  2. **Compute & Resource Optimization**: Prevents wasteful vector embeddings and RAG searches for simple order status inquiries (`"Where is ORD-8832?"`), while preventing direct database load for pure policy queries (`"What is the return window?"`).
+  3. **Zero Ambiguity in Action Execution**: Mutative operations (e.g. order cancellations, refund issuances) require unambiguous intent confirmation and validated entity extraction before passing control to transactional tools.
+- **HOW**:
+  - Utilizes `google.genai` SDK with `gemini-1.5-flash` at `temperature=0.0`.
+  - Enforces Pydantic structured output constraints (`response_schema=RouteDecision`) to guarantee schema adherence without JSON parsing failures.
+
+```mermaid
+flowchart TD
+    UserMsg["Incoming Customer Message\n(e.g., 'Where is my package for order ORD-9921?')"]
+
+    subgraph RouterCore ["Step 6 - Phase 1: IntentRouter (Backend/agent/router.py)"]
+        direction TB
+        LLMCall["Gemini-1.5-Flash (temperature=0.0)\nStructured Output Mode (RouteDecision)"]
+        Parser["Entity Extractor & Intent Classifier"]
+        Decision["RouteDecision\n- intent: DATABASE_LOOKUP\n- confidence: 0.98\n- entities: {order_id: 'ORD-9921'}\n- reasoning: 'Customer asking for order tracking'"]
+    end
+
+    subgraph StateLayer ["Agent State (Backend/agent/state.py)"]
+        State["AgentState\n- session_id: 'sess_123'\n- current_query: '...'\n- route_decision: RouteDecision\n- messages: [...]"]
+    end
+
+    subgraph RoutingTargets ["Downstream Execution Sub-Graphs (Phase 2)"]
+        PolicyNode["1. Policy RAG Sub-Graph\n(POLICY_INQUIRY)"]
+        DBNode["2. Database Lookup Sub-Graph\n(DATABASE_LOOKUP)"]
+        ActionNode["3. Action Engine Sub-Graph\n(ACTION_EXECUTION)"]
+        EscalateNode["4. Human Escalation Sub-Graph\n(GENERAL_ESCALATION)"]
+    end
+
+    UserMsg --> LLMCall
+    LLMCall --> Parser
+    Parser --> Decision
+    Decision --> State
+    State -->|intent == POLICY_INQUIRY| PolicyNode
+    State -->|intent == DATABASE_LOOKUP| DBNode
+    State -->|intent == ACTION_EXECUTION| ActionNode
+    State -->|intent == GENERAL_ESCALATION| EscalateNode
+```
+
+---
+
+### 2. Router Design & Intent Taxonomy
+
+#### Strict Intent Taxonomy
+
+| Intent Enum | Semantic Domain | Typical User Triggers | Target Downstream Sub-System |
+| :--- | :--- | :--- | :--- |
+| **`POLICY_INQUIRY`** | Questions about corporate terms, return windows, privacy, shipping timelines, or FAQs. | *"What is your refund policy?"*, *"Can I return opened items?"*, *"How long does standard shipping take?"* | Step 5 RAG Retrieval & Grounded Generation Engine |
+| **`DATABASE_LOOKUP`** | Read-only inquiries regarding customer accounts, order history, tracking IDs, or payment statuses. | *"Where is my order ORD-8832?"*, *"Check status for john@example.com"*, *"Did my payment go through?"* | Relational Database Services (`OrderService`, `PaymentService`) |
+| **`ACTION_EXECUTION`** | Mutative requests to modify state (cancel orders, request refunds, update shipping addresses). | *"Please cancel order ORD-5511 immediately"*, *"I want a refund for ORD-1234"*, *"Change delivery address"* | Transactional Action Engine & Safe Tools |
+| **`GENERAL_ESCALATION`** | Explicit human agent requests, abusive interactions, legal threats, or queries completely outside corporate scope. | *"I want to speak with a human agent"*, *"Let me talk to your CEO"*, *"I am filing a lawsuit"* | Support Ticket Escalation Service (`TicketService`) |
+
+#### Entity Extraction Schema
+Alongside intent classification, the router extracts all identifiable business parameters into a structured [`ExtractedEntities`](file:///c:/INTERNSHIP/ResolveX/Backend/agent/router.py#L45-L65) container:
+- `order_id`: Normalized alphanumeric order ID (e.g. `"ORD-8832"`).
+- `customer_id`: Unique customer identifier if mentioned (e.g. `"CUST-001"`).
+- `email`: Validated email address for account lookup.
+- `ticket_id`: Existing support ticket identifier (e.g. `"TCK-1001"`).
+- `policy_topic`: Categorical policy domain (`"refund"`, `"cancellation"`, `"shipping"`, `"account"`, `"payment"`).
+- `action_type`: Targeted mutation (`"cancel_order"`, `"request_refund"`, `"update_address"`).
+
+#### Ambiguity Fallback Strategy
+- **Low Confidence (< 0.70)**: If the LLM confidence score falls below 0.70 or the query is contradictory/vague (e.g. *"help me with everything"*), the router defaults to `GENERAL_ESCALATION` or requests domain clarification rather than misrouting to destructive action handlers.
+
+---
+
+### 3. Agent State Representation
+
+The [`AgentState`](file:///c:/INTERNSHIP/ResolveX/Backend/agent/state.py) model provides the unified data contract for the entire LangGraph workflow:
+
+```python
+class AgentState(BaseModel):
+    session_id: str
+    customer_id: str | None = None
+    messages: list[dict[str, Any]] = Field(default_factory=list)
+    current_query: str
+    route_decision: RouteDecision | None = None
+    retrieved_chunks: list[RankedChunk] = Field(default_factory=list)
+    db_lookup_results: dict[str, Any] = Field(default_factory=dict)
+    action_results: dict[str, Any] = Field(default_factory=dict)
+    final_response: str | None = None
+    is_escalated: bool = False
+    clarification_needed: bool = False
+```
+
+```mermaid
+flowchart LR
+    InitState["Initial AgentState\n(session_id, current_query)"] --> Router["IntentRouter"]
+    Router -->|binds route_decision| RoutedState["AgentState\n(+ route_decision, entities)"]
+    RoutedState --> SpecialistNode["Domain Specialist Node"]
+    SpecialistNode -->|binds context/db/action results| EnrichedState["AgentState\n(+ db_lookup_results / + retrieved_chunks)"]
+    EnrichedState --> ResponseNode["Response Synthesizer"]
+    ResponseNode -->|binds final_response| FinalState["AgentState\n(final_response, is_escalated)"]
+```
+
+---
+
+### 4. Code Architecture & Component Reference
+
+#### Detailed Code Changes Breakdown
+
+| File Name | Class / Model | What Changed | Why It Was Needed | How It Works |
+| :--- | :--- | :--- | :--- | :--- |
+| [`Backend/agent/__init__.py`](file:///c:/INTERNSHIP/ResolveX/Backend/agent/__init__.py) [NEW] | Module Root | Created agent package structure | Exports router and state models | Defines package `__all__` |
+| [`Backend/agent/state.py`](file:///c:/INTERNSHIP/ResolveX/Backend/agent/state.py) [NEW] | `AgentState` | Defined universal multi-turn conversational state | Maintains end-to-end context across LangGraph nodes | Pydantic model with messages, route decisions, tool results, and final output |
+| [`Backend/agent/router.py`](file:///c:/INTERNSHIP/ResolveX/Backend/agent/router.py) [NEW] | `IntentType` | Defined 4-way intent enum | Strict categorization contract | Enum with `POLICY_INQUIRY`, `DATABASE_LOOKUP`, `ACTION_EXECUTION`, `GENERAL_ESCALATION` |
+| [`Backend/agent/router.py`](file:///c:/INTERNSHIP/ResolveX/Backend/agent/router.py) [NEW] | `ExtractedEntities` | Defined parameter extraction schema | Captures entity identifiers from natural language | Holds optional `order_id`, `email`, `customer_id`, `policy_topic`, etc. |
+| [`Backend/agent/router.py`](file:///c:/INTERNSHIP/ResolveX/Backend/agent/router.py) [NEW] | `RouteDecision` | Defined routing payload contract | Packages intent, confidence, entities, and reasoning | Validated Pydantic model returned by Gemini structured generation |
+| [`Backend/agent/router.py`](file:///c:/INTERNSHIP/ResolveX/Backend/agent/router.py) [NEW] | `IntentRouter` | Implemented structured LLM intent classification engine | Deterministically routes queries using Gemini-1.5-Flash | Calls `google.genai` SDK with `temperature=0.0` and fallback resilience |
+| [`tests/test_agent_router.py`](file:///c:/INTERNSHIP/ResolveX/tests/test_agent_router.py) [NEW] | Test Suite | Unit tests for all 4 intents, entity extraction, and fallbacks | Guarantees 100% routing correctness and resilience | Mocks Gemini API and tests parsing, edge cases, and state models |
+
+---
+
+### 5. Beginner-Friendly Dry Runs
+
+#### Dry Run 1: Database Lookup Routing with Entity Extraction
+- **Input Query**: `"Where is my order ORD-8832? I haven't received tracking yet."`
+- **Execution**:
+  1. `router.classify_intent(query)` invoked.
+  2. Constructs prompt with system instructions defining the 4 intent categories.
+  3. Dispatches structured call to Gemini-1.5-Flash with `response_schema=RouteDecision`.
+  4. Response returns:
+     ```json
+     {
+       "intent": "DATABASE_LOOKUP",
+       "confidence": 0.98,
+       "entities": {
+         "order_id": "ORD-8832",
+         "policy_topic": null,
+         "action_type": null
+       },
+       "reasoning": "User is inquiring about the delivery status and location of a specific order ID."
+     }
+     ```
+- **Result**: Directly routes to `OrderService.get_order_with_details("ORD-8832")`, bypassing unnecessary vector RAG searches.
+
+#### Dry Run 2: Action Execution Routing
+- **Input Query**: `"Please cancel my order ORD-5511 immediately."`
+- **Execution**:
+  1. Router classifies intent as `ACTION_EXECUTION`.
+  2. Extracts `order_id = "ORD-5511"` and `action_type = "cancel_order"`.
+  3. Downstream action handler checks cancellation policy and executes state mutation safely.
+
+---
