@@ -12,8 +12,9 @@
 | **Step 2** | Supabase Backend Connection | **Completed** | Reusable Python Supabase client module, environment variable loading, and connectivity test. |
 | **Step 3** | Database Schema & Migrations | **Completed** | Core relational tables (customers, orders, items, payments, chat sessions, messages, tickets) and indexes. |
 | **Step 4** | Core Domain Models & Services | **Completed** | Pydantic v2 schemas (Phases 1-2), Service Foundation (Phase 3), and Database CRUD Services (Phase 4). |
-| **Step 5** | RAG Pipeline & Vector Search | *Pending* | Document ingestion, chunking, embeddings, and similarity retrieval. |
+| **Step 5** | RAG Pipeline & Vector Search | **Completed** | Document ingestion, chunking, embeddings, hybrid retrieval, RRF/cross-encoder reranking, and grounded generation. |
 | **Step 6** | LangGraph Agents & Tools | *Pending* | Triage, Orders, Technical Support, and Escalation agents. |
+
 | **Step 7** | API Layer & WebSocket Chat | *Pending* | FastAPI routes and real-time streaming endpoints. |
 | **Step 8** | Frontend Dashboard | *Pending* | Interactive user and support agent interfaces. |
 
@@ -1857,5 +1858,207 @@ flowchart LR
   2. `RankedChunk(chunk_id="refund_policy_001", final_rank=2, rerank_score=0.412, rrf_score=0.0325)`
   3. `RankedChunk(chunk_id="cancellation_policy_000", final_rank=3, rerank_score=0.083, rrf_score=0.0161)`
 - **Result**: The agent receives precisely relevant policy context, eliminating noise.
+
+---
+
+## Step 5 — Phase 5: Evidence Evaluation, Grounded Prompt Assembly, Citation Alignment, and Escalation Branching
+
+### 1. Architectural Overview & Responsibility
+
+Phase 5 is the **RAG Termination and Generation Engine** (`Backend/rag/generation.py`). It receives the top-3 cross-encoder ranked chunks and governs the synthesis of customer responses:
+
+- **WHAT**:
+  - **Evidence Sufficiency Evaluation**: Evaluates whether the retrieved Top-3 candidate passages contain complete, unambiguous factual premises to answer the user query.
+  - **Grounded Prompt Assembly**: Packages retrieved passages into a hardened prompt with strict delimiter encapsulation and explicit provenance tags (`[ID: chunk_id]`).
+  - **Deterministic Generation & Citation Extraction**: Invokes `gemini-1.5-flash` at `temperature=0.0` with closed-book guardrails, extracting source citation IDs to verify answer provenance.
+  - **Domain Clarification & Human Escalation Branching**: Automatically routes insufficient or ambiguous queries into targeted clarification questions or human agent escalation tickets without hallucinating answers.
+- **WHY**:
+  1. **Zero Hallucination Tolerance**: In enterprise customer resolution (e.g. refund rules, payment disputes), LLMs must never extrapolate or invent legal terms.
+  2. **Auditability & Traceability**: Customer service responses must link back to specific corporate policy paragraphs via machine-verifiable citations (`[ID: chunk_id]`).
+  3. **Safe Failure Modes**: If a question falls outside the company knowledge base (e.g., asking about employee salaries or custom warranties), the system must escalate or seek clarification rather than generating convincing fabrications.
+- **HOW**:
+  - `EvidenceEvaluator.evaluate_sufficiency(query, chunks)` assesses candidate relevance scores, text premises, and missing entity indicators.
+  - If sufficient: `GroundedPromptAssembler.assemble(query, chunks)` builds the context payload and `ResolutionGenerator` generates a cited response.
+  - If insufficient: Generates a graceful escalation response (`is_escalated=True`) or clarification request (`clarification_needed=True`).
+
+```mermaid
+flowchart TD
+    Top3["Top-3 Ranked Chunks\n(from Phase 4 Cross-Encoder)"]
+    Query["User / Agent Query"]
+
+    subgraph Phase5Engine ["Phase 5: Generation & Evaluation Pipeline (Backend/rag/generation.py)"]
+        direction TB
+        Evaluator["EvidenceEvaluator\n(evaluate_sufficiency)"]
+        Decision{"Evidence Status?"}
+
+        subgraph GroundedBranch ["Branch A: Sufficient Evidence"]
+            Assembler["GroundedPromptAssembler\n(assemble: [ID: chunk_id] blocks)"]
+            Gemini["Google GenAI SDK\n(gemini-1.5-flash, temp=0.0)"]
+            CitationParser["Citation Extractor\nRegex [ID: ...] alignment"]
+            SuccessResponse["GroundedResponse\n(response_text, citations, is_escalated=False)"]
+        end
+
+        subgraph ClarificationBranch ["Branch B: Ambiguous Query"]
+            ClarifyGen["Clarification Formulator"]
+            ClarifyResponse["GroundedResponse\n(clarification_needed=True, is_escalated=False)"]
+        end
+
+        subgraph EscalationBranch ["Branch C: Out-of-Scope / Insufficient"]
+            EscalateGen["Escalation Notice Generator"]
+            EscalateResponse["GroundedResponse\n(is_escalated=True, clarification_needed=False)"]
+        end
+    end
+
+    Top3 --> Evaluator
+    Query --> Evaluator
+    Evaluator --> Decision
+    Decision -->|Sufficient| Assembler
+    Assembler --> Gemini
+    Gemini --> CitationParser
+    CitationParser --> SuccessResponse
+    Decision -->|Ambiguous Query| ClarifyGen
+    ClarifyGen --> ClarifyResponse
+    Decision -->|Insufficient / Missing| EscalateGen
+    EscalateGen --> EscalateResponse
+```
+
+---
+
+### 2. Evidence-Sufficiency Evaluator Deep Dive
+
+#### Direct Entailment & Completeness Verification
+An information retrieval engine can successfully return top passages that share high lexical and semantic overlap with a question without those passages containing the *actual answer*. 
+
+`EvidenceEvaluator` evaluates context sufficiency using a composite rule and thresholding model:
+1. **Relevance Floor ($S_{\text{min}}$)**: The top-ranked candidate chunk must have a cross-encoder score above the baseline confidence floor ($S_{\text{rerank}} \ge 0.0005$). Chunks below this floor indicate irrelevant retrieval artifacts.
+2. **Top Candidate Count**: At least one candidate chunk must be present.
+3. **Ambiguity / Entity Heuristics**: Identifies incomplete questions lacking crucial predicates (e.g. asking *"how long?"* without specifying whether they mean shipping, refund processing, or account recovery).
+4. **Domain Match Verification**: Verifies that query keywords match policy vocabulary rather than out-of-scope topics (e.g. technical API bugs vs store return policies).
+
+$$\text{Sufficiency Score} = f\left(\max(S_{\text{rerank}}), \text{coverage}(q, C), \text{ambiguity}(q)\right)$$
+
+If $\text{Sufficiency Score} < \theta_{\text{threshold}}$, the pipeline halts grounded generation and activates the fallback branch.
+
+---
+
+### 3. Grounded Prompt Engineering & Citation Syntax
+
+#### Deterministic Temperature & Closed-Book Constraints
+- **Temperature ($T = 0.0$)**: Eliminates stochastic sampling variance, producing deterministic, reproducible outputs across runs.
+- **Closed-Book Boundary System Instructions**:
+  ```text
+  You are the ResolveX Support Policy Assistant.
+  Your task is to answer the user's question using EXCLUSIVELY the provided policy passages below.
+  
+  CRITICAL RULES:
+  1. Rely ONLY on the facts directly mentioned in the passages. Do NOT extrapolate or assume rules not stated.
+  2. For EVERY factual claim or policy condition you mention, cite the source passage ID using the exact format: [ID: chunk_id].
+  3. If the provided passages do NOT contain sufficient information to answer the question, state clearly that the information is unavailable and advise escalation.
+  4. Never invent policy clauses, day limits, or percentages.
+  ```
+
+#### Structural Context Serialization
+Passages are serialized with strict boundary delimiters to eliminate prompt injection vulnerabilities and maintain clear provenance:
+
+```text
+--- BEGIN POLICY CONTEXT ---
+
+[PASSAGE 1]
+[ID: refund_policy_000]
+Document: refund_policy.pdf
+Section: Refund Eligibility
+Content:
+Customers are eligible for a full refund within 7 days of package delivery for defective or damaged items.
+
+[PASSAGE 2]
+[ID: refund_policy_001]
+Document: refund_policy.pdf
+Section: Refund Processing
+Content:
+Once an approved item is received at our facility, refunds are processed to the original payment method within 5-7 business days.
+
+--- END POLICY CONTEXT ---
+```
+
+---
+
+### 4. Escalation & Clarification Engine
+
+#### Ambiguous Query Branch
+When a user query is too sparse or missing core domain entities (e.g. *"I want to cancel"* without order details, or *"How much?"* without specifying return shipping vs restocking fee), the system:
+- Flags `clarification_needed = True`.
+- Generates a friendly, focused follow-up prompt requesting the missing parameters before taking action.
+
+#### Domain Gap / Escalation Branch
+When a customer asks a question outside the indexed policy documents (e.g., *"What is your CEO's email?"* or *"Can I get a custom 3-year warranty for industrial use?"*):
+- Flags `is_escalated = True`.
+- Formulates a safe, professional acknowledgment: *"Our standard policy documents do not cover custom corporate warranties. A support ticket has been escalated to a human specialist to assist you."*
+- Binds ticket escalation metadata for downstream LangGraph agent workflow execution.
+
+---
+
+### 5. Latency Budgeting & Error Recovery
+
+| Stage / Component | Latency Target (p95) | Resilience Strategy |
+| :--- | :--- | :--- |
+| **Evidence Evaluation** | $\le 1\,\text{ms}$ | Heuristic & rule-based scoring; zero external API call required |
+| **Prompt Assembly** | $\le 1\,\text{ms}$ | Pure in-memory string interpolation and validation |
+| **Gemini-1.5-Flash Generation** | $\le 600\,\text{ms}$ | Fast inference via Google GenAI SDK; concise responses ($\le 150$ tokens) |
+| **Citation Alignment** | $\le 1\,\text{ms}$ | Deterministic regex extraction matching validated candidate chunk IDs |
+| **Total Phase 5 Runtime** | $\mathbf{\le 650\,\text{ms}}$ | Complete end-to-end grounded generation well under 1-second budget |
+
+#### Graceful Degradation
+- If Google GenAI API raises a transient network or quota exception, `ResolutionGenerator` catches the error, logs diagnostics, and returns a safe fallback message with `is_escalated=True`, ensuring the user conversation never hangs or crashes.
+
+---
+
+### 6. Code Architecture & Component Reference
+
+```mermaid
+flowchart LR
+    Chunks["Top-3 RankedChunk"] --> Evaluator["EvidenceEvaluator\n(Backend/rag/generation.py)"]
+    Evaluator -->|EvaluationResult| Generator["ResolutionGenerator\n(Backend/rag/generation.py)"]
+    Generator --> Assembler["GroundedPromptAssembler"]
+    Generator --> GenAI["Google GenAI SDK (gemini-1.5-flash)"]
+    Generator --> Response["GroundedResponse\n(response_text, citations, is_escalated, clarification_needed)"]
+```
+
+#### Detailed Code Changes Breakdown
+
+| File Name | Class / Function | What Changed | Why It Was Needed | How It Works |
+| :--- | :--- | :--- | :--- | :--- |
+| [`Backend/rag/generation.py`](file:///c:/INTERNSHIP/ResolveX/Backend/rag/generation.py) [NEW] | `EvaluationResult` | Defined model for evidence sufficiency assessment | Structured output contract for evidence evaluation | Contains `is_sufficient`, `confidence_score`, `reasoning`, `missing_information` |
+| [`Backend/rag/generation.py`](file:///c:/INTERNSHIP/ResolveX/Backend/rag/generation.py) [NEW] | `GroundedResponse` | Defined model for finalized RAG resolution output | Unified data contract for agent layer and UI streaming | Contains `response_text`, `citations`, `is_escalated`, `clarification_needed` |
+| [`Backend/rag/generation.py`](file:///c:/INTERNSHIP/ResolveX/Backend/rag/generation.py) [NEW] | `EvidenceEvaluator` | Implemented evidence completeness and sufficiency checker | Prevents hallucination when documents lack answers | Evaluates cross-encoder confidence, entity completeness, and content presence |
+| [`Backend/rag/generation.py`](file:///c:/INTERNSHIP/ResolveX/Backend/rag/generation.py) [NEW] | `GroundedPromptAssembler` | Implemented closed-book prompt serializer | Enforces citation tagging and delimiter boundaries | Encapsulates top-3 chunks with `[ID: chunk_id]` headers |
+| [`Backend/rag/generation.py`](file:///c:/INTERNSHIP/ResolveX/Backend/rag/generation.py) [NEW] | `ResolutionGenerator` | Implemented full generation orchestrator with Gemini-1.5-Flash | Synthesizes grounded answers and handles escalations | Calls `google.genai.Client`, extracts citations, and manages branching |
+| [`Backend/rag/__init__.py`](file:///c:/INTERNSHIP/ResolveX/Backend/rag/__init__.py) | Module Exports | Exported `EvaluationResult`, `GroundedResponse`, `EvidenceEvaluator`, `GroundedPromptAssembler`, `ResolutionGenerator` | Clean public imports for RAG package | Adds Phase 5 components to `__all__` |
+| [`tests/test_rag_generation.py`](file:///c:/INTERNSHIP/ResolveX/tests/test_rag_generation.py) [NEW] | Test Suite | Unit & integration tests for evaluation, prompt assembly, and generation | Verifies grounded citation extraction and escalation paths | Tests sufficient context, insufficient context, ambiguous queries, and full pipeline |
+
+---
+
+### 7. Beginner-Friendly Dry Runs
+
+#### Dry Run 1: Sufficient Evidence with Grounded Citations
+- **Query**: *"What is the deadline to request a refund for a damaged item?"*
+- **Retrieved Chunks**:
+  - `Chunk 1 (refund_policy_000)`: *"Customers are eligible for a full refund within 7 days of package delivery for defective or damaged items."* (Score: 0.982)
+- **Evaluation**: `is_sufficient = True`, `confidence_score = 0.982`.
+- **Generated Response**:
+  ```text
+  You can request a full refund for damaged or defective items within 7 days of package delivery [ID: refund_policy_000].
+  ```
+- **Extracted Citations**: `["refund_policy_000"]`
+- **Output**: `GroundedResponse(is_escalated=False, clarification_needed=False, citations=["refund_policy_000"])`.
+
+#### Dry Run 2: Insufficient Evidence with Safe Escalation
+- **Query**: *"Can I get a custom corporate discount for purchasing 5,000 units?"*
+- **Retrieved Chunks**: General consumer FAQ with low relevance scores (< 0.0001).
+- **Evaluation**: `is_sufficient = False`, `missing_information = ["Corporate bulk discount policy"]`.
+- **Generated Response**:
+  ```text
+  I apologize, but our standard retail policies do not contain information regarding bulk commercial purchases of 5,000 units. I have flagged this request to be escalated to our enterprise sales team.
+  ```
+- **Output**: `GroundedResponse(is_escalated=True, clarification_needed=False, citations=[])`.
 
 ---

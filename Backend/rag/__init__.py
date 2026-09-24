@@ -14,6 +14,13 @@ from Backend.rag.ingestion import (
     IngestionPipelineError,
     PolicyIngestionEngine,
 )
+from Backend.rag.generation import (
+    EvaluationResult,
+    EvidenceEvaluator,
+    GroundedPromptAssembler,
+    GroundedResponse,
+    ResolutionGenerator,
+)
 from Backend.rag.reranking import (
     CrossEncoderReranker,
     RankedChunk,
@@ -38,6 +45,12 @@ __all__ = [
     "RankedChunk",
     "reciprocal_rank_fusion",
     "CrossEncoderReranker",
+    "EvaluationResult",
+    "GroundedResponse",
+    "EvidenceEvaluator",
+    "GroundedPromptAssembler",
+    "ResolutionGenerator",
 ]
+
 
 
