@@ -41,9 +41,11 @@ from Backend.agent.nodes import (
     db_lookup_node,
     escalation_node,
     policy_rag_node,
+    technical_support_node,
 )
 from Backend.agent.router import IntentRouter, IntentType
 from Backend.agent.state import AgentState
+from Backend.agent.technical_support import TechnicalSupportAgent
 from Backend.rag.generation import ResolutionGenerator
 from Backend.rag.reranking import CrossEncoderReranker
 from Backend.rag.retrieval import HybridRetriever
@@ -80,6 +82,7 @@ class SupportAgentOrchestrator:
         ticket_service: TicketService | None = None,
         customer_service: CustomerService | None = None,
         payment_service: PaymentService | None = None,
+        technical_support_agent: TechnicalSupportAgent | None = None,
     ) -> None:
         """Initialize the Support Agent Orchestrator with optional dependency injection.
 
@@ -101,6 +104,7 @@ class SupportAgentOrchestrator:
         self.ticket_service = ticket_service
         self.customer_service = customer_service
         self.payment_service = payment_service
+        self.technical_support_agent = technical_support_agent
 
         self.workflow = self._build_graph()
         self.compiled_graph = self.workflow.compile()
@@ -151,6 +155,14 @@ class SupportAgentOrchestrator:
             ticket_service=self.ticket_service,
         )
 
+    def _technical_support_node(self, state: AgentState | dict[str, Any]) -> AgentState:
+        """Node adapter for Technical Support worker."""
+        agent_state = state if isinstance(state, AgentState) else AgentState.model_validate(state)
+        return technical_support_node(
+            state=agent_state,
+            technical_support_agent=self.technical_support_agent,
+        )
+
     def _escalation_node(self, state: AgentState | dict[str, Any]) -> AgentState:
         """Node adapter for Human Escalation worker."""
         agent_state = state if isinstance(state, AgentState) else AgentState.model_validate(state)
@@ -174,6 +186,8 @@ class SupportAgentOrchestrator:
             return "db_lookup"
         elif intent == IntentType.ACTION_EXECUTION:
             return "action_engine"
+        elif intent == IntentType.TECHNICAL_SUPPORT:
+            return "technical_support"
         elif intent == IntentType.GENERAL_ESCALATION:
             return "escalation"
         return "escalation"
@@ -187,6 +201,7 @@ class SupportAgentOrchestrator:
         workflow.add_node("policy_rag", self._policy_rag_node)
         workflow.add_node("db_lookup", self._db_lookup_node)
         workflow.add_node("action_engine", self._action_engine_node)
+        workflow.add_node("technical_support", self._technical_support_node)
         workflow.add_node("escalation", self._escalation_node)
 
         # 2. Set Entry Point
@@ -200,6 +215,7 @@ class SupportAgentOrchestrator:
                 "policy_rag": "policy_rag",
                 "db_lookup": "db_lookup",
                 "action_engine": "action_engine",
+                "technical_support": "technical_support",
                 "escalation": "escalation",
             },
         )
@@ -208,6 +224,7 @@ class SupportAgentOrchestrator:
         workflow.add_edge("policy_rag", END)
         workflow.add_edge("db_lookup", END)
         workflow.add_edge("action_engine", END)
+        workflow.add_edge("technical_support", END)
         workflow.add_edge("escalation", END)
 
         return workflow

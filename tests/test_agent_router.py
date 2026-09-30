@@ -211,6 +211,31 @@ class TestIntentRouterClassification:
         assert decision.intent == IntentType.GENERAL_ESCALATION
         assert decision.confidence == 0.95
 
+    def test_classify_technical_support(self):
+        mock_genai = MagicMock()
+        mock_response = MagicMock()
+        mock_response.text = json.dumps({
+            "intent": "TECHNICAL_SUPPORT",
+            "confidence": 0.97,
+            "entities": {
+                "order_id": None,
+                "email": None,
+                "customer_id": None,
+                "ticket_id": None,
+                "policy_topic": None,
+                "action_type": None,
+            },
+            "reasoning": "User reporting mobile app crash during checkout flow.",
+        })
+        mock_genai.models.generate_content.return_value = mock_response
+
+        router = IntentRouter(genai_client=mock_genai)
+        decision = router.classify_intent("App keeps crashing on checkout when I tap submit")
+
+        assert decision.intent == IntentType.TECHNICAL_SUPPORT
+        assert decision.confidence == 0.97
+        assert "app crash" in decision.reasoning.lower()
+
     def test_classify_markdown_wrapped_json_response(self):
         """Verify resilience when Gemini returns markdown code blocks ```json ... ```."""
         mock_genai = MagicMock()
@@ -290,6 +315,16 @@ class TestHeuristicFallback:
         decision = router.classify_intent("I want to speak with a human manager")
 
         assert decision.intent == IntentType.GENERAL_ESCALATION
+
+    def test_fallback_on_api_error_technical_support(self):
+        mock_genai = MagicMock()
+        mock_genai.models.generate_content.side_effect = RuntimeError("503 Gateway Timeout")
+
+        router = IntentRouter(genai_client=mock_genai, max_retries=1)
+        decision = router.classify_intent("My device is broken and won't turn on")
+
+        assert decision.intent == IntentType.TECHNICAL_SUPPORT
+        assert "Technical support" in decision.reasoning
 
     def test_fallback_on_api_error_default_policy(self):
         mock_genai = MagicMock()

@@ -33,6 +33,7 @@ if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
 from Backend.agent.state import AgentState
+from Backend.agent.technical_support import TechnicalSupportAgent
 from Backend.core.exceptions import (
     InvalidOperationError,
     ResourceNotFoundError,
@@ -523,3 +524,37 @@ def escalation_node(
     }
 
     return state
+
+
+# -----------------------------------------------------------------------------
+# 5. Technical Support Execution Node
+# -----------------------------------------------------------------------------
+
+def technical_support_node(
+    state: AgentState,
+    technical_support_agent: TechnicalSupportAgent | None = None,
+) -> AgentState:
+    """Executes structured technical diagnostics, troubleshooting, or hardware/service issue triage.
+
+    WHAT:
+        Invokes `TechnicalSupportAgent` to process technical malfunction symptoms, error codes,
+        and platform diagnostics, formulating step-by-step resolution workflows or escalating.
+
+    WHY:
+        Isolates interactive diagnostic state loops from transactional order mutations and static policy RAG.
+
+    HOW:
+        1. Injects or creates a default `TechnicalSupportAgent`.
+        2. Dispatches `agent.diagnose(query=state.current_query, history=state.messages, state=state)`.
+        3. Updates `state.final_response`, `state.action_results`, `state.clarification_needed`, and `state.is_escalated`.
+
+    Args:
+        state: Incoming conversational AgentState.
+        technical_support_agent: Optional injected TechnicalSupportAgent instance.
+
+    Returns:
+        Updated `AgentState` containing diagnostic steps, technical report, and user instructions.
+    """
+    agent = technical_support_agent or TechnicalSupportAgent()
+    return agent.diagnose(query=state.current_query, history=state.messages, state=state)
+

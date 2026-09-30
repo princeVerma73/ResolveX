@@ -28,6 +28,7 @@ if str(ROOT_DIR) not in sys.path:
 from Backend.agent.graph import SupportAgentOrchestrator
 from Backend.agent.router import ExtractedEntities, IntentRouter, IntentType, RouteDecision
 from Backend.agent.state import AgentState
+from Backend.agent.technical_support import TechnicalSupportAgent
 from Backend.rag.generation import GroundedResponse
 from Backend.rag.reranking import RankedChunk
 from Backend.rag.retrieval import RetrievedChunk
@@ -193,6 +194,32 @@ class TestSupportAgentOrchestrator:
         assert state.action_results["new_status"] == "CANCELLED"
         assert "successfully cancelled" in state.final_response
         mock_order_svc.update_order_status.assert_called_once_with("ORD-8811", OrderStatus.CANCELLED)
+
+    def test_orchestrator_technical_support_pathway(self):
+        mock_router = MagicMock(spec=IntentRouter)
+        mock_router.classify_intent.return_value = RouteDecision(
+            intent=IntentType.TECHNICAL_SUPPORT,
+            confidence=0.98,
+            entities=ExtractedEntities(),
+            reasoning="App crash during checkout flow.",
+        )
+
+        orchestrator = SupportAgentOrchestrator(router=mock_router)
+
+        state = orchestrator.run(
+            query="App keeps crashing on checkout when I click pay",
+            session_id="sess_tech_orch",
+        )
+
+        assert state.route_decision.intent == IntentType.TECHNICAL_SUPPORT
+        assert state.clarification_needed is True
+        assert state.is_escalated is False
+        assert "technical_report" in state.action_results
+        assert len(state.action_results["diagnostic_steps"]) >= 2
+        assert "1." in state.final_response
+        assert len(state.messages) == 2
+        assert state.messages[0]["role"] == "user"
+        assert state.messages[1]["role"] == "assistant"
 
     def test_orchestrator_general_escalation_pathway(self):
         mock_router = MagicMock(spec=IntentRouter)

@@ -3,11 +3,12 @@
 Step 6 — Phase 1: Agent State & Structured LLM Intent Router.
 
 WHAT:
-    Classifies incoming customer messages into a strict 4-way Intent taxonomy:
+    Classifies incoming customer messages into a strict 5-way Intent taxonomy:
     1. `POLICY_INQUIRY`: Grounded company policy, return terms, FAQs, and guidelines questions.
     2. `DATABASE_LOOKUP`: Read-only operational inquiries (order tracking, payment status, customer data).
     3. `ACTION_EXECUTION`: Mutative transactional requests (cancel order, request refund, update address).
-    4. `GENERAL_ESCALATION`: Human supervisor requests, legal threats, or out-of-scope interactions.
+    4. `TECHNICAL_SUPPORT`: Diagnostics, hardware issues, app crashes, bug reports, and error codes.
+    5. `GENERAL_ESCALATION`: Human supervisor requests, legal threats, or out-of-scope interactions.
 
 WHY:
     - Prevents compute-heavy RAG searches for simple order status checks.
@@ -57,11 +58,12 @@ logger = logging.getLogger(__name__)
 # -----------------------------------------------------------------------------
 
 class IntentType(str, Enum):
-    """Mutually exclusive 4-way intent classification taxonomy."""
+    """Mutually exclusive 5-way intent classification taxonomy."""
 
     POLICY_INQUIRY = "POLICY_INQUIRY"
     DATABASE_LOOKUP = "DATABASE_LOOKUP"
     ACTION_EXECUTION = "ACTION_EXECUTION"
+    TECHNICAL_SUPPORT = "TECHNICAL_SUPPORT"
     GENERAL_ESCALATION = "GENERAL_ESCALATION"
 
 
@@ -125,7 +127,7 @@ class IntentRouter:
 
     SYSTEM_INSTRUCTIONS = (
         "You are the ResolveX Central Intent Classification and Entity Extraction Router.\n"
-        "Your task is to analyze the user's inquiry and classify it into EXACTLY ONE of the following 4 intents:\n\n"
+        "Your task is to analyze the user's inquiry and classify it into EXACTLY ONE of the following 5 intents:\n\n"
         "1. POLICY_INQUIRY: General questions about store terms, return policy rules, refund processing timelines, "
         "shipping durations, cancellation rules, payment FAQs, or privacy guidelines.\n"
         "   Examples: 'What is your refund policy?', 'Can I return opened clothes?', 'How long does delivery take?'\n\n"
@@ -135,7 +137,10 @@ class IntentRouter:
         "3. ACTION_EXECUTION: Explicit requests to mutate state or execute a transaction, such as cancelling an order, "
         "initiating a product return, or updating a delivery address.\n"
         "   Examples: 'Please cancel order ORD-5511 immediately', 'I want to cancel my purchase', 'Refund my order ORD-9921'\n\n"
-        "4. GENERAL_ESCALATION: Requests to speak directly with a human representative, supervisor, or CEO, legal threats, "
+        "4. TECHNICAL_SUPPORT: Inquiries or reports regarding hardware malfunctions, device power failures, mobile app crashes, "
+        "software bugs, system errors, setup/installation guides, connectivity issues, or troubleshooting error codes.\n"
+        "   Examples: 'App keeps crashing on checkout', 'My device won't turn on', 'Getting error ERR-502', 'How do I reset my device?'\n\n"
+        "5. GENERAL_ESCALATION: Requests to speak directly with a human representative, supervisor, or CEO, legal threats, "
         "abusive language, or queries completely outside corporate retail operations.\n"
         "   Examples: 'Transfer me to a human', 'I want to talk to your CEO', 'I am suing your company'\n\n"
         "EXTRACTION RULES:\n"
@@ -301,7 +306,16 @@ class IntentRouter:
                 reasoning="Heuristic match: Specific order ID or tracking keyword detected.",
             )
 
-        # 3. Escalation keywords
+        # 3. Technical Support keywords
+        if any(w in lower_q for w in ["crash", "bug", "error", "won't turn on", "not turning on", "malfunction", "troubleshoot", "glitch", "broken", "freeze", "blank screen", "setup issue", "diagnostic"]):
+            return RouteDecision(
+                intent=IntentType.TECHNICAL_SUPPORT,
+                confidence=0.80,
+                entities=entities,
+                reasoning="Heuristic match: Technical support, bug, or hardware symptom detected.",
+            )
+
+        # 4. Escalation keywords
         if any(w in lower_q for w in ["human", "agent", "ceo", "lawyer", "sue", "manager", "representative"]):
             return RouteDecision(
                 intent=IntentType.GENERAL_ESCALATION,
@@ -310,7 +324,7 @@ class IntentRouter:
                 reasoning="Heuristic match: Escalation keyword detected.",
             )
 
-        # 4. Default: Policy Inquiry
+        # 5. Default: Policy Inquiry
         return RouteDecision(
             intent=IntentType.POLICY_INQUIRY,
             confidence=0.70,

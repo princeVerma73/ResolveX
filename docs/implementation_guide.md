@@ -13,8 +13,8 @@
 | Step 3 | Database Schema & Migrations | Completed | Core relational tables (customers, orders, items, payments, chat sessions, messages, tickets) and indexes. |
 | Step 4 | Core Domain Models & Services | Completed | Pydantic v2 schemas (Phases 1-2), Service Foundation (Phase 3), and Database CRUD Services (Phase 4). |
 | Step 5 | RAG Pipeline & Vector Search | Completed | Document ingestion, chunking, embeddings, hybrid retrieval, RRF/cross-encoder reranking, and grounded generation. |
-| Step 6 | LangGraph Agents & Tools | In Progress | Triage, Orders, Technical Support, and Escalation agents. |
-| Step 7 | API Layer & WebSocket Chat | Pending | FastAPI routes and real-time streaming endpoints. |
+| Step 6 | LangGraph Agents & Tools | Completed | Triage, Orders, Technical Support, and Escalation agents. |
+| Step 7 | API Layer & WebSocket Chat | Completed | FastAPI routes and real-time streaming endpoints. |
 | Step 8 | Frontend Dashboard | Pending | Interactive user and support agent interfaces. |
 
 
@@ -2505,5 +2505,413 @@ When `orchestrator.run(query, session_id, customer_id, history)` is executed:
   - Final State: `state.action_results["new_status"] == "CANCELLED"`.
 
 ---
+
+## Step 6 — Phase 4: Implementation of Dedicated Technical Support Agent, Multi-Agent Sub-Graphs, and Roadmap Alignment
+
+### 1. Architectural Overview & Responsibility
+
+Phase 4 completes the multi-agent architecture outlined in the ResolveX Implementation Roadmap, ensuring 1:1 parity with the specified core agents:
+1. **Triage Agent** ([`Backend/agent/router.py`](file:///c:/INTERNSHIP/ResolveX/Backend/agent/router.py)): High-precision intent classifier and entity extractor categorizing customer requests across 5 distinct intent channels (`POLICY_INQUIRY`, `DATABASE_LOOKUP`, `ACTION_EXECUTION`, `TECHNICAL_SUPPORT`, `GENERAL_ESCALATION`).
+2. **Orders Agent** ([`Backend/agent/nodes.py`](file:///c:/INTERNSHIP/ResolveX/Backend/agent/nodes.py)): Relational database lookup engine and guarded transactional mutation engine for order tracking, payment verification, address updates, cancellations, and refunds.
+3. **Technical Support Agent** ([`Backend/agent/technical_support.py`](file:///c:/INTERNSHIP/ResolveX/Backend/agent/technical_support.py)): Dedicated diagnostic sub-agent conducting stateful, interactive troubleshooting decision trees, error code inspection, hardware/software symptom intake, and targeted technical manual retrieval.
+4. **Escalation Agent** ([`Backend/agent/nodes.py`](file:///c:/INTERNSHIP/ResolveX/Backend/agent/nodes.py)): Context-preserving human specialist handoff dispatcher packaging session history, customer profile data, and diagnostic attempts into an escalation ticket payload.
+
+#### Multi-Agent Architecture Topology
+
+```mermaid
+flowchart TD
+    CustomerMessage([Incoming Customer Message]) --> Triage["1. Triage Agent\n(IntentRouter: 5-Way Intent Classification)"]
+
+    Triage --> DynamicBranch{"Conditional LangGraph Edge\n(route_decision.intent)"}
+
+    DynamicBranch -->|POLICY_INQUIRY| PolicyNode["2a. Policy RAG Agent\n(Dense + Sparse -> RRF -> Cross-Encoder -> GenAI)"]
+    DynamicBranch -->|DATABASE_LOOKUP| OrderLookupNode["2b. Orders Agent (Lookup)\n(OrderService / TicketService / CustomerService)"]
+    DynamicBranch -->|ACTION_EXECUTION| OrderActionNode["2c. Orders Agent (Mutations)\n(Guarded Cancellations & Refund Processing)"]
+    DynamicBranch -->|TECHNICAL_SUPPORT| TechSupportNode["2d. Technical Support Agent\n(Interactive Diagnostic Trees & Manual RAG)"]
+    DynamicBranch -->|GENERAL_ESCALATION| EscalationNode["2e. Escalation Agent\n(Human Specialist Dispatch & Context Handoff)"]
+
+    TechSupportNode -->|Hardware Failure / Steps Exhausted| EscalationNode
+
+    PolicyNode --> SharedEnd([LangGraph END: Final AgentState Synthesized])
+    OrderLookupNode --> SharedEnd
+    OrderActionNode --> SharedEnd
+    TechSupportNode -->|Resolution or Awaiting Input| SharedEnd
+    EscalationNode --> SharedEnd
+```
+
+#### Why a Dedicated Technical Support Agent Was Necessary
+- **Stateful Multi-Step Diagnostic Loops**: Unlike static question-answering or single-shot database lookups, technical failures (app crashes, device power drops, connectivity errors) require interactive, phased guidance where the assistant provides step 1, awaits customer outcome feedback, and dynamically adapts steps 2 and 3.
+- **Isolating Transactional Concerns from Troubleshooting**: Combining technical bug analysis with order database services creates bloated, fragile prompt schemas. Separating the Technical Support Agent guarantees modularity, clean testability, and isolated failure domains.
+- **Context-Preserving Hardware Escalation**: When hardware damage is detected (e.g., cracked screen, burnt port) or all diagnostic steps fail, the agent seamlessly escalates to Senior Technical Support Engineering while preserving diagnostic history in `AgentState.action_results["technical_report"]`.
+
+---
+
+### 2. Technical Support Sub-Agent Deep Dive
+
+#### Diagnostic State Flow & Decision Lifecycle
+
+```mermaid
+stateDiagram-v2
+    [*] --> SymptomIntake: Customer Reports Issue / Error Code
+    SymptomIntake --> EntityExtraction: Extract Device, Error Code, Symptoms
+    EntityExtraction --> RAGLookup: Query Technical Manuals (Optional RAG)
+    RAGLookup --> StepFormulation: Generate Ordered DiagnosticSteps
+    StepFormulation --> AwaitingUser: Set clarification_needed=True, Send Step 1
+    
+    AwaitingUser --> ResolutionCheck: Customer Responds with Outcome
+    
+    ResolutionCheck --> Resolved: "It worked!" / "Working now"
+    ResolutionCheck --> Escalated: "Still broken" / Hardware Damage / Exhausted
+    ResolutionCheck --> NextStep: Partial progress / Different symptom
+    
+    NextStep --> StepFormulation
+    Resolved --> [*]: Set is_resolved=True, Final Confirmation
+    Escalated --> [*]: Set is_escalated=True, Dispatch to Specialist
+```
+
+#### Pydantic Diagnostic Models
+
+```python
+class DiagnosticStep(BaseModel):
+    step_number: int = Field(..., description="Sequential step number (1-indexed)")
+    instruction: str = Field(..., description="Actionable instruction for the user to perform")
+    expected_outcome: str = Field(..., description="Expected diagnostic signal or verification check")
+
+
+class TechnicalIssueReport(BaseModel):
+    device_or_service: str = Field(default="General System", description="Identified device or service")
+    error_code: str | None = Field(default=None, description="Detected system error code")
+    symptoms: list[str] = Field(default_factory=list, description="Observed malfunction symptoms")
+    steps_completed: list[str] = Field(default_factory=list, description="Diagnostic steps already attempted")
+    is_resolved: bool = Field(default=False, description="Whether issue is confirmed resolved")
+```
+
+#### Key Functional Behaviors of `TechnicalSupportAgent`
+1. **Device & Symptom Classification**: Employs regex pattern trees to identify client platforms (e.g., Mobile App, Web Platform, Smart Speaker, Tablet/Display, Network Router, IoT Device) and symptoms (app crash, power failure, connectivity loss, blank screen).
+2. **Error Code Detection**: Identifies standard codes (e.g., `ERR-502`, `ERROR-404`, `E101`) to generate targeted advice.
+3. **Step-by-Step Remediation**: Generates sequential `DiagnosticStep` objects and requests customer confirmation on Step 1, flagging `state.clarification_needed = True`.
+4. **Resolution Detection**: Detects positive resolution phrases (*"it worked"*, *"fixed"*, *"working now"*) and finalizes the interaction with `is_resolved = True`.
+5. **Escalation Detection**: Identifies irrecoverable conditions (*"still not working"*, *"cracked screen"*, *"smoke"*, *"fatal error"*) and escalates to Senior Technical Support Engineering with `is_escalated = True`.
+
+---
+
+### 3. Code Architecture & Component Reference
+
+#### Detailed Code Changes Breakdown
+
+| File Name | Class / Function | What Changed | Why It Was Needed | How It Works |
+| :--- | :--- | :--- | :--- | :--- |
+| [`Backend/agent/technical_support.py`](file:///c:/INTERNSHIP/ResolveX/Backend/agent/technical_support.py) [NEW] | `TechnicalSupportAgent`, `DiagnosticStep`, `TechnicalIssueReport` | Implemented dedicated Technical Support Sub-Agent | Structured hardware/software diagnostic triage | Analyzes symptoms/error codes, issues ordered diagnostic steps, detects resolution or escalates |
+| [`Backend/agent/router.py`](file:///c:/INTERNSHIP/ResolveX/Backend/agent/router.py) [UPDATED] | `IntentType.TECHNICAL_SUPPORT`, `IntentRouter` | Extended intent taxonomy from 4 to 5 channels | Classify tech support queries separately from policy and orders | Updates prompt schema and regex fallback for crashes, hardware bugs, and setup issues |
+| [`Backend/agent/nodes.py`](file:///c:/INTERNSHIP/ResolveX/Backend/agent/nodes.py) [UPDATED] | `technical_support_node` | Added LangGraph execution node for technical support | Standardized `AgentState -> AgentState` node interface | Dispatches to `TechnicalSupportAgent.diagnose(...)` and hydrates `AgentState` |
+| [`Backend/agent/graph.py`](file:///c:/INTERNSHIP/ResolveX/Backend/agent/graph.py) [UPDATED] | `SupportAgentOrchestrator` | Integrated `"technical_support"` route key and node | Completes 4-agent supervisor graph | Adds `technical_support` node to StateGraph conditional routing topology |
+| [`Backend/agent/__init__.py`](file:///c:/INTERNSHIP/ResolveX/Backend/agent/__init__.py) [UPDATED] | Module Exports | Exported `TechnicalSupportAgent` and models | Clean public interface | Exposes `TechnicalSupportAgent`, `DiagnosticStep`, `TechnicalIssueReport`, and `technical_support_node` |
+| [`tests/test_agent_technical_support.py`](file:///c:/INTERNSHIP/ResolveX/tests/test_agent_technical_support.py) [NEW] | Test Suite | Unit tests for diagnostics, models, resolution, and escalation | Verify 100% technical agent invariants | Tests app crash, power failure, error codes, resolution detection, and escalation triggers |
+| [`tests/test_agent_router.py`](file:///c:/INTERNSHIP/ResolveX/tests/test_agent_router.py) [UPDATED] | `test_classify_technical_support`, `test_fallback_on_api_error_technical_support` | Added tests for 5-way routing | Ensures robust intent detection | Tests LLM-based and fallback regex intent classification for tech support |
+| [`tests/test_agent_orchestrator.py`](file:///c:/INTERNSHIP/ResolveX/tests/test_agent_orchestrator.py) [UPDATED] | `test_orchestrator_technical_support_pathway` | End-to-end graph test for technical support pathway | Verifies graph branching and state output | Validates end-to-end execution through `SupportAgentOrchestrator.run(...)` |
+
+---
+
+### 4. Beginner-Friendly Dry Runs
+
+#### Dry Run 1: Mobile App Crash Diagnostic Flow
+- **User Query**: *"App keeps crashing on checkout when I click pay."*
+- **Execution Flow**:
+  1. `IntentRouter` classifies query as `TECHNICAL_SUPPORT` (confidence 0.98).
+  2. LangGraph branches to `technical_support_node`.
+  3. `TechnicalSupportAgent` extracts `device="Mobile App"` and `symptom="Application crash or freeze"`.
+  4. Generates 3 sequential `DiagnosticStep` objects:
+     - Step 1: Force close app, clear cache, and relaunch.
+     - Step 2: Check app store for latest update.
+     - Step 3: Reinstall application.
+- **Result State**:
+  - `state.clarification_needed = True`
+  - `state.is_escalated = False`
+  - `state.action_results["technical_report"]["is_resolved"] = False`
+  - `state.final_response` guides user through Step 1 and requests outcome confirmation.
+
+#### Dry Run 2: Hardware Malfunction Failure Leading to Escalation
+- **User Query**: *"Still not working, tried that already and screen is cracked."*
+- **Execution Flow**:
+  1. `TechnicalSupportAgent` detects failure indicators (`"still not working"`, `"cracked"`, `"tried that already"`).
+  2. Flags immediate escalation to prevent customer frustration.
+  3. Prepares escalation dispatch payload with session context and device history.
+- **Result State**:
+  - `state.is_escalated = True`
+  - `state.clarification_needed = False`
+  - `state.action_results["escalation_payload"]["reason"] = "Technical troubleshooting exhausted or hardware failure detected."`
+  - `state.final_response` informs the customer of priority handoff to Senior Technical Support Engineering.
+
+#### Dry Run 3: Step-by-Step Resolution Confirmation
+- **User Query**: *"That worked! The app is working now, thank you."*
+- **Execution Flow**:
+  1. `TechnicalSupportAgent` recognizes positive resolution confirmation (`"that worked"`, `"working now"`).
+  2. Sets `is_resolved = True`.
+- **Result State**:
+  - `state.is_escalated = False`
+  - `state.clarification_needed = False`
+  - `state.action_results["technical_report"]["is_resolved"] = True`
+  - `state.final_response` delivers closing congratulations and offers further assistance if needed.
+
+---
+
+### 5. Verification & Test Suite Results
+
+```text
+============================= test session starts =============================
+platform win32 -- Python 3.12.0, pytest-9.1.1, pluggy-1.6.0
+rootdir: C:\INTERNSHIP\ResolveX
+plugins: anyio-4.12.0, langsmith-0.9.7, asyncio-1.4.0, typeguard-4.4.4
+asyncio: mode=Mode.STRICT
+collected 196 items
+
+tests\test_agent_nodes.py ...............                                [  7%]
+tests\test_agent_orchestrator.py ........                                [ 11%]
+tests\test_agent_router.py ................                              [ 19%]
+tests\test_agent_technical_support.py .........                          [ 24%]
+tests\test_database_schema.py .............                              [ 31%]
+tests\test_domain_models.py .....................                        [ 41%]
+tests\test_domain_services.py ..................                         [ 51%]
+tests\test_rag_chunking.py ...............                               [ 58%]
+tests\test_rag_generation.py .............                               [ 65%]
+tests\test_rag_ingestion.py ............                                 [ 71%]
+tests\test_rag_reranking.py ...............                              [ 79%]
+tests\test_rag_retrieval.py ........................                     [ 91%]
+tests\test_services_foundation.py ...............                        [ 98%]
+tests\test_supabase_connection.py ..                                     [100%]
+
+====================== 196 passed, 4 warnings in 19.81s =======================
+```
+
+**Step 6 — LangGraph Agents & Tools is now officially 100% complete across all 4 roadmap agents (Triage, Orders, Technical Support, Escalation).**
+
+---
+
+## Step 7 — API Layer & Real-Time WebSocket Streaming Chat
+
+### 1. Architectural Overview & Responsibility
+
+Step 7 exposes the multi-agent reasoning capabilities of ResolveX to external web clients, native applications, and customer support dashboards through a high-performance **FastAPI** application layer:
+
+- **WHAT**:
+  - **REST Endpoints**:
+    - `GET /health`: Probes database connectivity (`verify_connection`) and agent orchestrator lifecycle state.
+    - `POST /api/chat`: Processes single-turn and multi-turn inquiries asynchronously via [`SupportAgentOrchestrator.arun`](file:///c:/INTERNSHIP/ResolveX/Backend/agent/graph.py#L273), returns strongly typed [`ChatResponse`](file:///c:/INTERNSHIP/ResolveX/Backend/api/schemas.py#L32), and logs conversational turns to [`ChatService`](file:///c:/INTERNSHIP/ResolveX/Backend/services/chat_service.py#L20).
+    - `GET /api/sessions/{session_id}`: Retrieves complete historical chat transcripts with chronological message order.
+  - **WebSocket Real-Time Streaming**:
+    - `/ws/chat/{session_id}`: Bi-directional WebSocket endpoint streaming granular lifecycle events (`start`, `routing`, `retrieval`, `token`, `done`, `error`) for responsive UI rendering.
+  - **Application Lifespan & Middleware**:
+    - Initializes and pre-compiles the LangGraph multi-agent orchestrator during startup.
+    - Configures CORS middleware for frontend origins.
+- **WHY**:
+  - Standardizes external access: decoupled clients can consume either synchronous REST or live streaming without internal knowledge of LangGraph or Supabase.
+  - Eliminates perceived AI latency by streaming intermediate diagnostic signals and typewriter tokens.
+- **HOW**:
+  - Uses FastAPI dependency injection (`Depends`) to provide singleton services and orchestrators.
+  - Manages active client sockets with [`ConnectionManager`](file:///c:/INTERNSHIP/ResolveX/Backend/api/websocket.py#L30).
+
+#### API & WebSocket System Topology
+
+```mermaid
+flowchart TD
+    Client["Frontend Web App / Dashboard Client"]
+
+    subgraph FastAPILayer["ResolveX API Server (Backend/main.py)"]
+        RouterChat["POST /api/chat"]
+        RouterSession["GET /api/sessions/{session_id}"]
+        RouterHealth["GET /health"]
+        WSChannel["/ws/chat/{session_id}"]
+        ConnMgr["ConnectionManager\n(Active Socket Registry)"]
+    end
+
+    subgraph AgentLayer["LangGraph Multi-Agent Engine"]
+        Orchestrator["SupportAgentOrchestrator\n(app.state.orchestrator)"]
+        StateGraphEngine["StateGraph Pipeline\n(Triage -> Orders / TechSupport / RAG / Escalation)"]
+    end
+
+    subgraph PersistenceLayer["Supabase Backend"]
+        DB[("PostgreSQL\n(Chat Sessions & Messages)")]
+    end
+
+    Client -->|HTTP Request| RouterChat
+    Client -->|HTTP Request| RouterSession
+    Client -->|Health Check| RouterHealth
+    Client <-->|WebSocket Frames| WSChannel
+
+    WSChannel <--> ConnMgr
+    RouterChat --> Orchestrator
+    WSChannel --> Orchestrator
+
+    Orchestrator --> StateGraphEngine
+    RouterChat -.->|Persist Message Turn| DB
+    RouterSession -->|Fetch Transcript| DB
+```
+
+---
+
+### 2. WebSocket Streaming Lifecycle & Event Protocol
+
+To eliminate conversational latency, the WebSocket endpoint emits phased JSON frames:
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Customer as Customer Client
+    participant WS as WebSocket Endpoint (/ws/chat/{session_id})
+    participant Agent as SupportAgentOrchestrator
+    participant DB as ChatService
+
+    Customer->>WS: Connect WebSocket
+    WS-->>Customer: Connection Accepted
+    Customer->>WS: Send JSON: {"query": "Where is my order ORD-8832?"}
+    
+    WS-->>Customer: Frame {"event": "start", "query": "..."}
+    WS-->>Customer: Frame {"event": "routing", "status": "Analyzing request intent..."}
+
+    WS->>Agent: arun(query, session_id, history)
+    Note over Agent: Classifies intent -> Executes node
+    Agent-->>WS: Returns updated AgentState
+    
+    opt Grounded Retrieval Performed
+        WS-->>Customer: Frame {"event": "retrieval", "chunks_count": 2, "citations": [...]}
+    end
+
+    loop Typewriter Stream
+        WS-->>Customer: Frame {"event": "token", "delta": "word "}
+    end
+
+    WS-->>Customer: Frame {"event": "done", "response": "...", "intent": "...", "citations": [...]}
+```
+
+#### Protocol Frame Schema Reference
+
+| Event Name | Purpose | Key Attributes |
+| :--- | :--- | :--- |
+| `start` | Acknowledges received query | `session_id`, `query` |
+| `routing` | Intent classification status | `status` (human-readable progress message) |
+| `retrieval` | Grounded passage metadata | `chunks_count`, `citations` (chunk IDs) |
+| `token` | Streaming typewriter delta | `delta` (word or fragment string) |
+| `done` | Final structured resolution | `response`, `intent`, `citations`, `is_escalated`, `clarification_needed`, `action_results` |
+| `error` | Processing failure report | `message` (error details) |
+
+---
+
+### 3. Code Architecture & Component Reference
+
+#### Detailed Code Changes Breakdown
+
+| File Name | Class / Function | What Changed | Why It Was Needed | How It Works |
+| :--- | :--- | :--- | :--- | :--- |
+| [`requirements.txt`](file:///c:/INTERNSHIP/ResolveX/requirements.txt) | Dependencies | Added `fastapi`, `uvicorn`, `websockets`, `httpx` | Core HTTP/WebSocket runtime and testing | Declares version constraints for web framework dependencies |
+| [`Backend/api/schemas.py`](file:///c:/INTERNSHIP/ResolveX/Backend/api/schemas.py) [NEW] | `ChatRequest`, `ChatResponse`, `SessionHistoryResponse`, `HealthResponse` | Implemented Pydantic API schemas | Validates client payloads and guarantees structured responses | Enforces strict string lengths, defaults, and serializable output models |
+| [`Backend/api/routes.py`](file:///c:/INTERNSHIP/ResolveX/Backend/api/routes.py) [NEW] | `health_check`, `chat_endpoint`, `get_session_history` | Implemented core REST endpoint handlers | HTTP access for queries, health probes, and chat history | Injects orchestrator and DB service, calls `arun()`, and extracts citations |
+| [`Backend/api/websocket.py`](file:///c:/INTERNSHIP/ResolveX/Backend/api/websocket.py) [NEW] | `ConnectionManager`, `websocket_chat_endpoint` | Implemented WebSocket connection registry and streaming loop | Real-time bi-directional chat streaming | Broadcasts lifecycle events (`start` -> `routing` -> `token` -> `done`) |
+| [`Backend/api/__init__.py`](file:///c:/INTERNSHIP/ResolveX/Backend/api/__init__.py) [NEW] | Package Exports | Exported routers, manager, and schemas | Clean public API package boundary | Bundles `chat_router`, `websocket_router`, `manager`, and schemas |
+| [`Backend/main.py`](file:///c:/INTERNSHIP/ResolveX/Backend/main.py) [UPDATED] | `create_app`, `lifespan` | Configured full FastAPI application | Single entrypoint for ResolveX server | Wires lifespan pre-compilation, CORS middleware, and API/WS routers |
+| [`tests/test_api_endpoints.py`](file:///c:/INTERNSHIP/ResolveX/tests/test_api_endpoints.py) [NEW] | Test Suite | 10 unit and integration tests | Guarantees API and WebSocket correctness | Tests `/health`, `POST /api/chat`, 422 validations, session history, and WebSocket streaming |
+
+---
+
+### 4. Beginner-Friendly Dry Runs
+
+#### Dry Run 1: REST Chat Execution (`POST /api/chat`)
+- **Incoming Request**:
+  ```json
+  POST /api/chat
+  {
+    "query": "Where is my order ORD-8832?",
+    "session_id": "SES-100",
+    "customer_id": "CUST-001"
+  }
+  ```
+- **Execution Flow**:
+  1. FastAPI validates payload using [`ChatRequest`](file:///c:/INTERNSHIP/ResolveX/Backend/api/schemas.py#L12).
+  2. Injected [`SupportAgentOrchestrator`](file:///c:/INTERNSHIP/ResolveX/Backend/agent/graph.py#L58) runs `arun(...)`.
+  3. `IntentRouter` classifies query as `DATABASE_LOOKUP`.
+  4. `db_lookup_node` queries order details for `ORD-8832`.
+  5. Message turns are asynchronously persisted to `messages` table in Supabase.
+- **Server Response (200 OK)**:
+  ```json
+  {
+    "session_id": "SES-100",
+    "customer_id": "CUST-001",
+    "query": "Where is my order ORD-8832?",
+    "response": "Order ORD-8832 is currently SHIPPED. Tracking Number: TRK-9901.",
+    "intent": "DATABASE_LOOKUP",
+    "confidence": 0.99,
+    "citations": [],
+    "is_escalated": false,
+    "clarification_needed": false,
+    "entities": {"order_id": "ORD-8832"},
+    "action_results": {}
+  }
+  ```
+
+#### Dry Run 2: WebSocket Streaming Chat (`/ws/chat/{session_id}`)
+- **Client Connects**: `ws://localhost:8000/ws/chat/SES-WS-1`
+- **Client Sends**: `{"query": "How long does shipping take?"}`
+- **Server Stream Sequence**:
+  - `{"event": "start", "session_id": "SES-WS-1", "query": "How long does shipping take?"}`
+  - `{"event": "routing", "status": "Analyzing request intent and extracting domain entities..."}`
+  - `{"event": "retrieval", "chunks_count": 1, "citations": ["chk_ship_01"]}`
+  - `{"event": "token", "delta": "Standard"}`
+  - `{"event": "token", "delta": " delivery"}`
+  - `{"event": "token", "delta": " takes"}`
+  - `{"event": "token", "delta": " 3-5"}`
+  - `{"event": "token", "delta": " business"}`
+  - `{"event": "token", "delta": " days."}`
+  - `{"event": "done", "session_id": "SES-WS-1", "response": "Standard delivery takes 3-5 business days [ID: chk_ship_01].", "intent": "POLICY_INQUIRY", "citations": ["chk_ship_01"], "is_escalated": false, "clarification_needed": false}`
+
+#### Dry Run 3: Session History Retrieval (`GET /api/sessions/{session_id}`)
+- **Incoming Request**: `GET /api/sessions/SES-100`
+- **Execution Flow**:
+  1. `get_session_history` calls `chat_service.get_session_with_messages("SES-100")`.
+  2. Queries `chat_sessions` and related `messages` ordered by `created_at ASC`.
+- **Server Response (200 OK)**:
+  ```json
+  {
+    "session_id": "SES-100",
+    "customer_id": "CUST-001",
+    "status": "ACTIVE",
+    "messages": [
+      {"sender_type": "USER", "content": "Where is my order ORD-8832?", "created_at": "2026-09-30T14:00:00Z"},
+      {"sender_type": "AGENT", "content": "Order ORD-8832 is currently SHIPPED.", "created_at": "2026-09-30T14:00:02Z"}
+    ]
+  }
+  ```
+
+---
+
+### 5. Verification & Test Suite Results
+
+```text
+============================= test session starts =============================
+platform win32 -- Python 3.12.0, pytest-9.1.1, pluggy-1.6.0
+rootdir: C:\INTERNSHIP\ResolveX
+plugins: anyio-4.12.0, langsmith-0.9.7, asyncio-1.4.0, typeguard-4.4.4
+asyncio: mode=Mode.STRICT
+collected 206 items
+
+tests\test_agent_nodes.py ...............                                [  7%]
+tests\test_agent_orchestrator.py ........                                [ 11%]
+tests\test_agent_router.py ................                              [ 18%]
+tests\test_agent_technical_support.py .........                          [ 23%]
+tests\test_api_endpoints.py ..........                                   [ 28%]
+tests\test_database_schema.py .............                              [ 34%]
+tests\test_domain_models.py .....................                        [ 44%]
+tests\test_domain_services.py ..................                         [ 53%]
+tests\test_rag_chunking.py ...............                               [ 60%]
+tests\test_rag_generation.py .............                               [ 66%]
+tests\test_rag_ingestion.py ............                                 [ 72%]
+tests\test_rag_reranking.py ...............                              [ 80%]
+tests\test_rag_retrieval.py ........................                     [ 91%]
+tests\test_services_foundation.py ...............                        [ 99%]
+tests\test_supabase_connection.py ..                                     [100%]
+
+====================== 206 passed, 4 warnings in 18.21s =======================
+```
+
+**Step 7 — API Layer & WebSocket Chat is 100% complete with full REST and real-time WebSocket streaming capabilities verified.**
+
 
 

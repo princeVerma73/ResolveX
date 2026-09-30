@@ -10,6 +10,7 @@ from Backend.agent.nodes import (
     db_lookup_node,
     escalation_node,
     policy_rag_node,
+    technical_support_node,
 )
 from Backend.agent.router import (
     ExtractedEntities,
@@ -18,6 +19,11 @@ from Backend.agent.router import (
     RouteDecision,
 )
 from Backend.agent.state import AgentState
+from Backend.agent.technical_support import (
+    DiagnosticStep,
+    TechnicalIssueReport,
+    TechnicalSupportAgent,
+)
 
 __all__ = [
     "AgentState",
@@ -25,11 +31,13 @@ __all__ = [
     "ExtractedEntities",
     "RouteDecision",
     "IntentRouter",
+    "DiagnosticStep",
+    "TechnicalIssueReport",
+    "TechnicalSupportAgent",
     "policy_rag_node",
     "db_lookup_node",
     "action_engine_node",
+    "technical_support_node",
     "escalation_node",
     "SupportAgentOrchestrator",
 ]
-
-
