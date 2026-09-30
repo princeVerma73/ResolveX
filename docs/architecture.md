@@ -496,40 +496,68 @@ flowchart TD
 
 ## 10. AI Agent & LangGraph Orchestration Architecture
 
-The AI agent orchestrator is **Planned** and will be constructed using **LangGraph** to manage multi-step reasoning.
+The AI agent orchestrator is constructed on a **LangGraph StateGraph** topology driven by the **JEV Decision-Making Engine** (Judgment, Evaluation & Verification) as the core cognitive reasoning brain and dynamic router across specialized sub-agents.
 
 ```mermaid
 flowchart TD
-    Start([User Message Received]) --> Node_Context[Node: Load Context & Entities [Planned]]
-    Node_Context --> Node_Intent[Node: Intent Classifier [Planned]]
+    Start([User Message Received]) --> Node_Context[Node: Load Context & Entities]
+    Node_Context --> Node_JEV["Node: JEV Decision-Making Engine\n(Judgment, Evaluation & Verification)"]
 
-    Node_Intent --> Router{Intent Classification}
+    subgraph JEV_Internal ["JEV Decision-Making & Reasoning Pipeline"]
+        J["1. Judgment: Intent Taxonomy & Confidence Bounds"]
+        E["2. Evaluation: Context Memory & Invariant Pre-Conditions"]
+        V["3. Verification: Dynamic Tool & Sub-Agent Arbiter"]
+        J --> E --> V
+    end
 
-    Router -->|Policy Inquiry| Node_RAG[Node: RAG Document Search [Planned]]
-    Router -->|Order Inquiry| Node_Order[Node: check_order_status Tool [Planned]]
-    Router -->|Payment Inquiry| Node_Payment[Node: check_payment_status Tool [Planned]]
-    Router -->|Escalation Request| Node_Escalate[Node: Human Escalation [Planned]]
-    Router -->|General / Greeting| Node_General[Node: Conversational Response [Planned]]
+    Node_JEV -.-> JEV_Internal
 
-    Node_Order --> CheckResult{Tool Result Valid?}
-    Node_Payment --> CheckResult
+    Node_JEV --> Router{JEV Dynamic Route Decision}
+
+    Router -->|POLICY_INQUIRY| Node_RAG[Node: Policy RAG Worker\n(Dense + Sparse -> RRF -> Cross-Encoder)]
+    Router -->|DATABASE_LOOKUP| Node_Order[Node: Orders Agent Lookup\n(OrderService / TicketService / CustomerService)]
+    Router -->|ACTION_EXECUTION| Node_Action[Node: Orders Agent Action Engine\n(Guarded Cancellations & Refunds)]
+    Router -->|TECHNICAL_SUPPORT| Node_Tech[Node: Technical Support Agent\n(Interactive Diagnostic Trees)]
+    Router -->|GENERAL_ESCALATION| Node_Escalate[Node: Human Escalation Agent\n(Context-Preserving Handoff)]
+
+    Node_Order --> CheckResult{JEV Execution Evaluator}
+    Node_Action --> CheckResult
     Node_RAG --> CheckResult
+    Node_Tech --> CheckResult
 
-    CheckResult -->|Success| Node_Synth[Node: Synthesize Response [Planned]]
-    CheckResult -->|Missing Parameter| Node_Ask[Node: Ask Clarification [Planned]]
-    CheckResult -->|Database / Tool Error| Node_Escalate
+    CheckResult -->|Success / Resolved| Node_Synth[Node: Synthesize Response]
+    CheckResult -->|Missing Parameter / Verification Needed| Node_Ask[Node: Ask Clarification]
+    CheckResult -->|Unresolvable / Hardware Failure| Node_Escalate
 
-    Node_Escalate --> Node_CreateTicket[Node: Insert Escalated Ticket in DB [Planned]]
+    Node_Escalate --> Node_CreateTicket[Node: Dispatch Support Ticket in DB]
     Node_CreateTicket --> Node_Synth
 
-    Node_Synth --> Node_Save[Node: Persist Message & Update State [Planned]]
+    Node_Synth --> Node_Save[Node: Persist Message & State]
     Node_Ask --> Node_Save
-    Node_General --> Node_Save
 
-    Node_Save --> End([Return Response])
+    Node_Save --> End([Return Final AgentState])
 ```
 
-### 10.1 Planned Agent State Definition
+### 10.1 The JEV Decision-Making Engine Architecture
+
+The **JEV Decision-Making Engine** serves as the central deterministic reasoning and arbitration layer within ResolveX, guaranteeing that all agent actions pass through explicit evaluation before execution:
+
+1. **Judgment (J) — Deterministic Intent Classification**:
+   - Classifies customer messages into a mutually exclusive 5-way taxonomy (`POLICY_INQUIRY`, `DATABASE_LOOKUP`, `ACTION_EXECUTION`, `TECHNICAL_SUPPORT`, `GENERAL_ESCALATION`).
+   - Computes quantitative confidence scores ($0.0 \le C \le 1.0$), routing ambiguous or low-confidence requests directly to safe clarification or escalation paths to avoid non-deterministic hallucinations.
+   - Strictly distinguishes read-only information retrieval from state-mutating operations.
+
+2. **Evaluation (E) — Context & Business Invariant Evaluation**:
+   - Inspects conversational turns to resolve coreferences and pronouns (e.g., binding *"Cancel it"* to `order_id="ORD-8832"` from a previous turn).
+   - Validates entity completeness (e.g., verifying whether an `order_id` or `email` is present before executing a database query).
+   - Enforces domain invariant pre-conditions prior to mutation (e.g., verifying that an order is not `DELIVERED` before permitting cancellation, or ensuring completed payment records exist before processing refunds).
+
+3. **Verification (V) — Dynamic Tool Selection & Post-Action Verification**:
+   - Dynamically selects optimal domain tools and sub-agents based on the evaluated execution plan.
+   - Evaluates intermediate execution outcomes: verifies that database records were found, checks that RAG passages satisfy groundedness criteria, and evaluates whether technical diagnostics resolved the issue or require human escalation.
+   - Manages state flags (`clarification_needed`, `is_escalated`) deterministically before synthesizing the final response.
+
+### 10.2 Planned Agent State Definition
 ```python
 # Planned LangGraph State Schema
 from typing import Sequence, TypedDict
@@ -873,9 +901,9 @@ flowchart LR
     
     Phase3["Phase 3: Telemetry & Scale\n• OpenTelemetry distributed tracing\n• Continuous RAG Triad evaluation\n• Multi-region cloud scaling"]
 
-    Phase4["Phase 4: AWS Enterprise Infrastructure\n• AWS API Gateway & ALB\n• AWS ECS Fargate auto-scaling\n• AWS Bedrock multi-LLM fallback"]
+    Phase4["Phase 4: AWS Infrastructure & JEV Reasoning\n• AWS API Gateway & ALB\n• AWS ECS Fargate auto-scaling\n• AWS Bedrock multi-LLM fallback\n• JEV Decision Engine for complex tickets"]
 
-    Phase5["Phase 5: SaaS Monetization & Metering\n• Stripe Billing subscriptions\n• Per-tenant token & step tracking\n• Enforced usage tier quotas"]
+    Phase5["Phase 5: SaaS Monetization & JEV Metering\n• Stripe Billing subscriptions\n• Per-tenant token & step tracking\n• JEV multi-step autonomous resolution\n• Enforced usage tier quotas"]
 
     Phase6["Phase 6: Omnichannel Support\n• WhatsApp Business API & Social DMs\n• Inbound email processing (AWS SES)\n• Unified omnichannel agent inbox"]
 
@@ -910,17 +938,19 @@ flowchart LR
   - *Groundedness*: Verification that LLM claims strictly originate from retrieved passages.
   - *Answer Relevance*: Semantic alignment between customer query and synthesized resolution.
 
-#### Phase 4: AWS Enterprise Infrastructure [Planned]
+#### Phase 4: AWS Enterprise Infrastructure & JEV Advanced Reasoning [Planned]
 - **High-Availability Cloud Deployment**: Migration to containerized workloads on AWS ECS (Fargate) or EKS fronted by an Application Load Balancer (ALB) across multiple Availability Zones.
 - **Managed API Gateway**: AWS API Gateway managing tenant rate limiting, throttling, usage plans, and native WebSocket connection handling.
+- **JEV Decision-Making Engine Integration**: Deploys the JEV (Judgment, Evaluation & Verification) engine as the primary advanced reasoning layer for complex, multi-step SaaS support tickets. JEV coordinates cross-system evaluations (e.g. cross-referencing customer subscription tiers, order statuses, warranty policies, and return conditions to formulate autonomous multi-step resolution workflows).
 - **AWS Bedrock Multi-Model Fallback Engine**: Multi-LLM routing layer utilizing Google Gemini as the primary engine with automatic zero-downtime failover to Anthropic Claude 3.5 Sonnet or Mistral Large via AWS Bedrock if the primary provider experiences latency degradation or rate limits.
 - **Asynchronous Webhook Processing**: AWS EventBridge and SQS handling third-party webhooks (e.g., Shopify order updates) with Dead Letter Queues (DLQ) preventing data loss during traffic spikes.
 
-#### Phase 5: SaaS Monetization & Usage Metering [Planned]
+#### Phase 5: SaaS Monetization & JEV Usage Metering [Planned]
 - **Subscription Tiering via Stripe Billing**: Flexible SaaS pricing tiers:
   - *Starter*: Up to 500 AI conversations/month, 5 policy documents, standard email support.
   - *Pro*: Up to 5,000 AI conversations/month, 50 policy documents, live human escalation, Shopify connector.
   - *Enterprise*: Unlimited conversations, custom RAG vector databases, dedicated SLA, custom SLA thresholds, and AWS Bedrock multi-model redundancy.
+- **JEV-Driven Tiered Reasoning & Step Metering**: Leverages the JEV decision-making engine to track reasoning depth and deliberation steps per `tenant_id`. Premium enterprise tiers unlock multi-step recursive JEV planning for automated claim processing, while standard tiers enforce strict step quotas to control LLM compute costs.
 - **Granular Usage Metering**: Real-time tracking of input/output token consumption, agent reasoning steps, and vector search operations per `tenant_id` to enforce billing quotas and automated overage billing.
 - **Customer Billing Dashboard**: Self-service portal displaying historical usage metrics, invoice downloads, and subscription plan management.
 

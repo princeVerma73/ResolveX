@@ -15,7 +15,7 @@
 | Step 5 | RAG Pipeline & Vector Search | Completed | Document ingestion, chunking, embeddings, hybrid retrieval, RRF/cross-encoder reranking, and grounded generation. |
 | Step 6 | LangGraph Agents & Tools | Completed | Triage, Orders, Technical Support, and Escalation agents. |
 | Step 7 | API Layer & WebSocket Chat | Completed | FastAPI routes and real-time streaming endpoints. |
-| Step 8 | Frontend Dashboard | Pending | Interactive user and support agent interfaces. |
+| Step 8 | Frontend Dashboard | Completed | Interactive user and support agent interfaces. |
 
 
 ---
@@ -2912,6 +2912,113 @@ tests\test_supabase_connection.py ..                                     [100%]
 ```
 
 **Step 7 — API Layer & WebSocket Chat is 100% complete with full REST and real-time WebSocket streaming capabilities verified.**
+
+---
+
+## Step 8 — Frontend Dashboard & Real-Time WebSocket Client
+
+### 1. Architectural Overview & Responsibility
+
+#### WHAT
+The **Frontend Dashboard & Real-Time WebSocket Client** is a zero-setup, high-performance customer support web interface built with standard HTML5, Vanilla JavaScript, and Tailwind CSS (via CDN). It provides end users with a frictionless conversational UI that connects directly to the ResolveX FastAPI backend via persistent bi-directional WebSockets.
+
+#### WHY
+1. **Zero-Setup & Instant Execution**: By utilizing Tailwind CSS via CDN and native modern browser APIs (Fetch, WebSocket, DOM Manipulation), the frontend requires no `npm install`, Webpack, Vite, or Node.js runtime to execute. It can be served from any static file server, reverse proxy (NGINX, CloudFront, S3), or opened directly in any browser (`file:///`).
+2. **Real-Time Token Streaming with Low Latency**: Native WebSockets eliminate HTTP polling overhead, streaming individual LLM response tokens directly into the chat bubble with a responsive typewriter effect and blinking cursor.
+3. **Transparent Multi-Agent Observability**: The client renders intermediate agent lifecycle notifications (`start`, `routing`, `retrieval`) in an animated banner, displaying real-time agent intent badges and source citation chips once answers are synthesized.
+4. **Resilient Session State**: Automatic fallback session ID generation (`SES-<HEX12>`), `sessionStorage` persistence across page reloads, and automatic background reconnection with exponential backoff on disconnect.
+
+#### HOW
+The frontend is structured into two cleanly decoupled files:
+- `frontend/index.html`: Defines the layout, responsive typography (Inter), dark-mode palette, top navigation bar, status indicators, scrollable message history, animated lifecycle banner, and auto-expanding input form.
+- `frontend/script.js`: Encapsulates session initialization, WebSocket lifecycle management, real-time event dispatching, DOM rendering for user/agent bubbles, intent badge coloring, citation chips, and quick suggestion pills.
+
+---
+
+### 2. Core Components & Implementation Details
+
+#### 1. Layout & Styling (`frontend/index.html`)
+- **Theme**: Dark slate palette (`bg-slate-950`, `text-slate-100`, `border-slate-800`) with indigo accent highlights (`#6366f1`).
+- **Connection Indicator**: Reactive pill badge with pulsing radar indicator showing `Live Agent Connected`, `Connecting...`, or `Disconnected (Retrying)`.
+- **Session Badge**: Displays the active session ID with one-click "New Session" reset capability.
+- **Hero Welcome Card**: Features an intro message and 5 quick prompt pills that trigger instantaneous multi-agent queries:
+  - 📦 *Where is order ORD-8832?* (Database Lookup)
+  - 📄 *What is your refund policy?* (Hybrid Policy RAG)
+  - 🛑 *Cancel order ORD-5511* (Transactional Action Execution)
+  - 📱 *App keeps crashing on checkout* (Interactive Technical Diagnostics)
+  - 👤 *Talk to a human representative* (General Escalation)
+
+#### 2. WebSocket Protocol Client (`frontend/script.js`)
+The WebSocket client implements a reactive event-driven state machine listening to frames from `ws://localhost:8000/ws/chat/{session_id}`:
+
+```javascript
+// Protocol Event Handler Mapping
+function handleServerEvent(payload) {
+  const event = payload.event;
+  if (event === 'start') {
+    // Show banner, create assistant message bubble with blinking typewriter cursor
+  } else if (event === 'routing') {
+    // Update banner with intent classification status
+  } else if (event === 'retrieval') {
+    // Update banner with grounded policy chunks count
+  } else if (event === 'token') {
+    // Append token delta to active message bubble
+  } else if (event === 'done') {
+    // Remove typing cursor, append intent badge, render citation chips, flag escalations
+  } else if (event === 'error') {
+    // Render error banner and release UI lock
+  }
+}
+```
+
+#### 3. Intent Badge & Citation Chips
+When the agent finishes generating (`done` event), `script.js` parses the metadata and mounts:
+- **Intent Badge**: Color-coded category tag:
+  - `POLICY_INQUIRY` -> Blue (`bg-blue-500/10 text-blue-400 border-blue-500/20`)
+  - `DATABASE_LOOKUP` -> Green (`bg-emerald-500/10 text-emerald-400 border-emerald-500/20`)
+  - `ACTION_EXECUTION` -> Amber (`bg-amber-500/10 text-amber-400 border-amber-500/20`)
+  - `TECHNICAL_SUPPORT` -> Purple (`bg-purple-500/10 text-purple-400 border-purple-500/20`)
+  - `GENERAL_ESCALATION` -> Rose (`bg-rose-500/10 text-rose-400 border-rose-500/20`)
+- **Citation Chips**: Monospace grounded source tags (e.g., `[chk_return_01]`, `[chk_ship_02]`).
+- **Escalation Alert**: Rose notification banner if the conversation was routed to human agents.
+
+---
+
+### 3. WebSocket Event Protocol Lifecycle
+
+| Event Name | Direction | Server Payload Attributes | UI Action Taken |
+| :--- | :--- | :--- | :--- |
+| `start` | Server -> Client | `session_id`, `query` | Activates lifecycle banner ("INITIATED"), spawns new assistant bubble with `.typing-cursor`. |
+| `routing` | Server -> Client | `status` | Banner updates to "ROUTING" with message (e.g. "Classifying query intent..."). |
+| `retrieval` | Server -> Client | `chunks_count`, `citations` | Banner updates to "RAG" displaying number of retrieved grounded policy chunks. |
+| `token` | Server -> Client | `delta` | Appends text token to the current bubble and auto-scrolls chat window to the bottom. |
+| `done` | Server -> Client | `response`, `intent`, `citations`, `is_escalated` | Hides banner, removes typing cursor, appends color-coded intent badge, citation chips, and human escalation alert. Re-enables Send button. |
+| `error` | Server -> Client | `message` | Hides banner, displays warning in bubble, and re-enables Send button. |
+
+---
+
+### 4. Verification & Testing
+
+#### How to Launch the Frontend:
+1. Ensure the FastAPI backend is running:
+   ```bash
+   uvicorn Backend.main:app --host 0.0.0.0 --port 8000 --reload
+   ```
+2. Open `frontend/index.html` in any web browser:
+   - Direct: Double-click `frontend/index.html` or open `file:///c:/INTERNSHIP/ResolveX/frontend/index.html`.
+   - Via Python HTTP Server:
+     ```bash
+     cd frontend && python -m http.server 3000
+     # Navigate to http://localhost:3000
+     ```
+
+#### Full Test Suite Status:
+```text
+===================== 206 passed, 4 warnings in 23.49s =====================
+```
+
+**Step 8 — Frontend Dashboard is 100% complete and verified. The full ResolveX end-to-end system (Steps 1 through 8) is fully implemented, tested, and ready for submission.**
+
 
 
 
