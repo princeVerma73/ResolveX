@@ -66,11 +66,12 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
     )
 
-    # Configure CORS for frontend web and dashboard clients
-    allowed_origins = os.getenv("CORS_ORIGINS", "*").split(",")
+    # Configure CORS for frontend web, Netlify deployments, and dashboard clients
+    allowed_origins = [o.strip() for o in os.getenv("CORS_ORIGINS", "*").split(",") if o.strip()]
     app.add_middleware(
         CORSMiddleware,
         allow_origins=allowed_origins,
+        allow_origin_regex=r"^https:\/\/[a-zA-Z0-9_.-]+\.netlify\.app$",
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],

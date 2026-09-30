@@ -210,6 +210,13 @@
     html.light .session-item {
       border-color: #cbd5e1 !important;
       color: #1e293b !important;
+      font-weight: 500 !important;
+    }
+    html.light #session-history-list > div span,
+    html.light #recent-chats-list > div span,
+    html.light .session-item span {
+      color: #1e293b !important;
+      font-weight: 500 !important;
     }
     html.light #session-history-list > div:hover,
     html.light #recent-chats-list > div:hover,
@@ -217,11 +224,18 @@
       background-color: #e2e8f0 !important;
       color: #0f172a !important;
     }
+    html.light #session-history-list > div:hover span,
+    html.light #recent-chats-list > div:hover span,
+    html.light .session-item:hover span {
+      color: #0f172a !important;
+    }
     html.light #session-history-list > div.active-chat,
     html.light #session-history-list > div.bg-zinc-800,
+    html.light #session-history-list > div.bg-slate-300,
     html.light #session-history-list > div.bg-\[\#262626\],
     html.light #recent-chats-list > div.active-chat,
     html.light #recent-chats-list > div.bg-zinc-800,
+    html.light #recent-chats-list > div.bg-slate-300,
     html.light .session-item.active-chat {
       background-color: #cbd5e1 !important;
       color: #0f172a !important;
@@ -230,20 +244,23 @@
     }
     html.light #session-history-list > div.active-chat span,
     html.light #session-history-list > div.bg-zinc-800 span,
+    html.light #session-history-list > div.bg-slate-300 span,
     html.light #session-history-list > div.bg-\[\#262626\] span,
     html.light #recent-chats-list > div.active-chat span,
     html.light #recent-chats-list > div.bg-zinc-800 span,
+    html.light #recent-chats-list > div.bg-slate-300 span,
     html.light .session-item.active-chat span {
       color: #0f172a !important;
       font-weight: 600 !important;
     }
 
-    /* Light theme Metadata Pills & Badges (.pill-tag, .citation-tag, .telemetry-pill, etc.) */
+    /* Light theme Metadata Pills & Badges (.pill-tag, .citation-tag, .latency-pill, .telemetry-pill, etc.) */
     html.light .pill-tag,
     html.light .citation-tag,
+    html.light .latency-pill,
+    html.light .telemetry-pill,
     html.light .intent-badge,
     html.light .confidence-pill,
-    html.light .telemetry-pill,
     html.light .meta-badge,
     html.light .meta-pill {
       background-color: #e2e8f0 !important;
@@ -252,19 +269,22 @@
     }
     html.light .pill-tag span,
     html.light .citation-tag span,
+    html.light .latency-pill span,
+    html.light .telemetry-pill span,
     html.light .intent-badge span,
     html.light .confidence-pill span,
-    html.light .telemetry-pill span,
     html.light .meta-badge span,
     html.light .meta-pill span {
       color: #1e293b !important;
     }
     html.light .telemetry-pill:hover,
+    html.light .latency-pill:hover,
     html.light button.meta-pill:hover {
       background-color: #cbd5e1 !important;
       color: #0f172a !important;
     }
     html.light .telemetry-pill:hover span,
+    html.light .latency-pill:hover span,
     html.light button.meta-pill:hover span {
       color: #0f172a !important;
     }
@@ -593,7 +613,7 @@
       </div>
 
       <!-- Chat History List (Isolated per User) -->
-      <div id="session-history-list" class="flex flex-col gap-1 overflow-y-auto max-h-[calc(100vh-360px)] pr-1">
+      <div id="recent-chats-list" data-alias="session-history-list" class="flex flex-col gap-1 overflow-y-auto max-h-[calc(100vh-360px)] pr-1">
         <!-- Rendered dynamically by script.js -->
       </div>
     </div>
@@ -720,7 +740,7 @@
       <div class="max-w-3xl mx-auto w-full flex flex-col justify-start">
 
         <!-- Empty State Hero (ChatGPT / Gemini Clean Style) -->
-        <div id="hero-state" class="py-16 md:py-24 flex flex-col items-center justify-center text-center">
+        <div id="welcome-view" data-alias="hero-state" class="py-16 md:py-24 flex flex-col items-center justify-center text-center">
           <!-- Spark Icon -->
           <div class="h-10 w-10 rounded-2xl bg-zinc-800 border border-zinc-700 flex items-center justify-center mb-4 text-zinc-300 shadow-sm">
             <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -776,7 +796,7 @@
         </div>
 
         <!-- Messages Container -->
-        <div id="messages-list" class="space-y-6 pb-4">
+        <div id="chat-messages" data-alias="messages-list" class="space-y-6 pb-4">
           <!-- Messages inserted dynamically -->
         </div>
 
@@ -835,6 +855,7 @@
   <!-- Toast Notification Container (Bottom Right) -->
   <div id="toast-container" class="fixed bottom-5 right-5 z-50 flex flex-col gap-2 pointer-events-none"></div>
 
+  <script src="config.js"></script>
   <script src="script.js"></script>
 </body>
 </html>

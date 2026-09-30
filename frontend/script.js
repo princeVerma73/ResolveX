@@ -226,7 +226,7 @@ const pingIndicator = document.getElementById('ping-indicator');
 
 const chatScrollContainer = document.getElementById('chat-scroll-container');
 const heroState = document.getElementById('welcome-view') || document.getElementById('hero-state');
-const messagesList = document.getElementById('messages-list');
+const messagesList = document.getElementById('chat-messages') || document.getElementById('messages-list');
 const chatForm = document.getElementById('chat-form');
 const chatInput = document.getElementById('chat-input');
 const btnSend = document.getElementById('btn-send');
@@ -318,10 +318,12 @@ btnLogout.addEventListener('click', () => {
 });
 
 function getApiUrl(endpoint) {
-  if (window.location.protocol === 'file:') {
-    return `http://localhost:8000${endpoint}`;
-  }
-  return endpoint;
+  const backendBase =
+    window.__APP_CONFIG__ && window.__APP_CONFIG__.BACKEND_URL
+      ? window.__APP_CONFIG__.BACKEND_URL.replace(/\/+$/, '')
+      : (window.location.protocol === 'file:' ? 'http://localhost:8000' : '');
+  const cleanEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
+  return `${backendBase}${cleanEndpoint}`;
 }
 
 // 5. Visitor Counter Initialization (Global persistent server state)
@@ -357,46 +359,85 @@ async function updateVisitorCounter() {
 // 4. Sidebar Session History (Isolated per User)
 // -----------------------------------------------------------------------------
 
+function updateSidebarActiveHighlight() {
+  const isLightMode = document.documentElement.classList.contains('light');
+  const currentSessions = getUserSessions();
+  userChatCount.textContent = currentSessions.length;
+  const listEl = document.getElementById('recent-chats-list') || sessionHistoryList;
+  if (!listEl) return;
+  const items = listEl.querySelectorAll('.session-item');
+  currentSessions.forEach((s, idx) => {
+    const el = items[idx];
+    if (el) {
+      const isTarget = s.id === sessionId;
+      const titleSpan = el.querySelector('.session-title') || el.querySelector('span');
+      if (isTarget) {
+        if (isLightMode) {
+          el.className = 'session-item group active-chat flex items-center justify-between px-2.5 py-2 rounded-lg cursor-pointer text-xs transition bg-slate-300 text-slate-900 font-semibold border border-slate-400 shadow-sm';
+          if (titleSpan) titleSpan.className = 'session-title truncate max-w-[130px] text-xs text-slate-900 font-semibold';
+        } else {
+          el.className = 'session-item group active-chat flex items-center justify-between px-2.5 py-2 rounded-lg cursor-pointer text-xs transition bg-zinc-800 text-white font-medium border border-zinc-700 shadow-sm';
+          if (titleSpan) titleSpan.className = 'session-title truncate max-w-[130px] text-xs text-white font-medium';
+        }
+      } else {
+        if (isLightMode) {
+          el.className = 'session-item group flex items-center justify-between px-2.5 py-2 rounded-lg cursor-pointer text-xs transition text-slate-800 font-medium hover:bg-slate-200';
+          if (titleSpan) titleSpan.className = 'session-title truncate max-w-[130px] text-xs text-slate-800 font-medium';
+        } else {
+          el.className = 'session-item group flex items-center justify-between px-2.5 py-2 rounded-lg cursor-pointer text-xs transition text-zinc-400 hover:bg-zinc-800/60 hover:text-zinc-200';
+          if (titleSpan) titleSpan.className = 'session-title truncate max-w-[130px] text-xs text-zinc-400';
+        }
+      }
+    }
+  });
+}
+
 function renderSessionHistory() {
   const sessions = getUserSessions();
-  sessionHistoryList.innerHTML = '';
+  const listEl = document.getElementById('recent-chats-list') || sessionHistoryList;
+  if (!listEl) return;
+  listEl.innerHTML = '';
   userChatCount.textContent = sessions.length;
 
   if (sessions.length === 0) {
     const emptyNotice = document.createElement('div');
     emptyNotice.className = 'px-2 py-3 text-[11px] text-zinc-500 italic';
     emptyNotice.textContent = 'No previous conversations';
-    sessionHistoryList.appendChild(emptyNotice);
+    listEl.appendChild(emptyNotice);
     return;
   }
+
+  const isLightMode = document.documentElement.classList.contains('light');
 
   sessions.forEach((s) => {
     const isActive = s.id === sessionId;
     const item = document.createElement('div');
+    item.setAttribute('data-session-id', s.id);
     item.className = `session-item group flex items-center justify-between px-2.5 py-2 rounded-lg cursor-pointer text-xs transition ${
       isActive
-        ? 'active-chat bg-zinc-800 text-white font-medium border border-zinc-700 shadow-sm'
-        : 'text-zinc-400 hover:bg-zinc-800/60 hover:text-zinc-200'
+        ? (isLightMode ? 'active-chat bg-slate-300 text-slate-900 font-semibold border border-slate-400 shadow-sm' : 'active-chat bg-zinc-800 text-white font-medium border border-zinc-700 shadow-sm')
+        : (isLightMode ? 'text-slate-800 font-medium hover:bg-slate-200' : 'text-zinc-400 hover:bg-zinc-800/60 hover:text-zinc-200')
     }`;
 
     item.innerHTML = `
       <div class="flex items-center gap-2 truncate">
-        <svg class="w-3.5 h-3.5 text-zinc-500 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <svg class="w-3.5 h-3.5 ${isLightMode ? 'text-slate-600' : 'text-zinc-500'} shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/>
         </svg>
-        <span class="truncate max-w-[130px] text-xs">${escapeHtml(s.title || 'Conversation')}</span>
+        <span class="session-title truncate max-w-[130px] text-xs ${isLightMode ? (isActive ? 'text-slate-900 font-semibold' : 'text-slate-800 font-medium') : (isActive ? 'text-white font-medium' : 'text-zinc-400')}">${escapeHtml(s.title || 'Conversation')}</span>
       </div>
-      <button class="opacity-0 group-hover:opacity-100 text-zinc-500 hover:text-zinc-300 p-0.5 rounded transition" title="Delete conversation" data-id="${s.id}">
+      <button class="opacity-0 group-hover:opacity-100 ${isLightMode ? 'text-slate-500 hover:text-slate-800' : 'text-zinc-500 hover:text-zinc-300'} p-0.5 rounded transition" title="Delete conversation" data-id="${s.id}">
         <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M6 18L18 6M6 6l12 12"/>
         </svg>
       </button>
     `;
 
-    // Click on item selects and restores session
+    // 1. In #recent-chats-list item click listener, extract clicked sessionId & restore
     item.addEventListener('click', (e) => {
       if (e.target.closest('button')) return;
-      loadSession(s.id);
+      const targetSessionId = item.getAttribute('data-session-id') || s.id;
+      loadSession(targetSessionId);
     });
 
     // Delete button
@@ -405,21 +446,34 @@ function renderSessionHistory() {
       deleteBtn.addEventListener('click', (e) => removeSessionRecord(s.id, e));
     }
 
-    sessionHistoryList.appendChild(item);
+    listEl.appendChild(item);
   });
 }
 
 function loadSession(targetId) {
+  // Step 1: Extract clicked sessionId
   sessionId = targetId;
   sessionStorage.setItem('resolvex_session_id', sessionId);
   if (sessionBadge) sessionBadge.textContent = sessionId;
 
   closeMobileSidebar();
 
-  // Clear current canvas
-  messagesList.innerHTML = '';
+  const welcomeContainer = document.getElementById('welcome-view') || document.getElementById('hero-state');
+  const chatContainer = document.getElementById('chat-messages') || document.getElementById('messages-list');
+
+  // Step 2: Hide welcome screen container (#welcome-view)
+  if (welcomeContainer) {
+    welcomeContainer.classList.add('hidden');
+  }
+
+  // Step 3: Clear and show main chat container (#chat-messages)
+  if (chatContainer) {
+    chatContainer.innerHTML = '';
+    chatContainer.classList.remove('hidden');
+  }
   if (lifecycleBanner) lifecycleBanner.classList.add('hidden');
 
+  // Step 4: Fetch messages from localStorage for that sessionId
   let messages = getSessionMessages(sessionId);
 
   // If no saved messages yet, generate initial turn if title exists
@@ -463,8 +517,9 @@ function loadSession(targetId) {
     }
   }
 
+  // Render all conversation bubbles, pills, and citations
   if (messages && messages.length > 0) {
-    hideHeroState();
+    if (welcomeContainer) welcomeContainer.classList.add('hidden');
     messages.forEach((msg) => {
       if (msg.role === 'user') {
         appendUserMessage(msg.content, false);
@@ -472,29 +527,16 @@ function loadSession(targetId) {
         renderStoredAssistantMessage(msg);
       }
     });
+    // Step 6: Scroll chat feed to the bottom
     scrollToBottom();
     isFirstMessageInSession = false;
   } else {
-    const welcome = document.getElementById('welcome-view');
-    if (welcome) welcome.classList.remove('hidden');
-    if (heroState) heroState.classList.remove('hidden');
+    if (welcomeContainer) welcomeContainer.classList.remove('hidden');
     isFirstMessageInSession = true;
   }
 
-  // Update visual highlight on sidebar
-  const currentSessions = getUserSessions();
-  userChatCount.textContent = currentSessions.length;
-  const items = sessionHistoryList.querySelectorAll('.session-item, .group');
-  currentSessions.forEach((s, idx) => {
-    const el = items[idx];
-    if (el) {
-      if (s.id === sessionId) {
-        el.className = 'session-item group active-chat flex items-center justify-between px-2.5 py-2 rounded-lg cursor-pointer text-xs transition bg-zinc-800 text-white font-medium border border-zinc-700 shadow-sm';
-      } else {
-        el.className = 'session-item group flex items-center justify-between px-2.5 py-2 rounded-lg cursor-pointer text-xs transition text-zinc-400 hover:bg-zinc-800/60 hover:text-zinc-200';
-      }
-    }
-  });
+  // Step 5: Apply active highlighting (bg-zinc-800 text-white in dark mode / bg-slate-300 text-slate-900 in light mode)
+  updateSidebarActiveHighlight();
 
   if (socket) {
     socket.close();
@@ -570,10 +612,11 @@ if (projectInfoModal) {
 // -----------------------------------------------------------------------------
 
 function getWebSocketUrl() {
-  const host = window.location.host || 'localhost:8000';
-  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-  const wsHost = window.location.protocol === 'file:' ? 'localhost:8000' : host;
-  return `${protocol}//${wsHost}/ws/chat/${sessionId}`;
+  const wsBase =
+    window.__APP_CONFIG__ && window.__APP_CONFIG__.WS_URL
+      ? window.__APP_CONFIG__.WS_URL.replace(/\/+$/, '')
+      : `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host || 'localhost:8000'}`;
+  return `${wsBase}/ws/chat/${sessionId}`;
 }
 
 function updateConnectionStatus(state) {
@@ -994,7 +1037,8 @@ function sendMessage(queryText) {
   }
 
   if (!socket || socket.readyState !== WebSocket.OPEN) {
-    showToast('Backend server offline. Reconnecting to ws://localhost:8000...', 'error');
+    const wsTarget = (window.__APP_CONFIG__ && window.__APP_CONFIG__.WS_URL) ? window.__APP_CONFIG__.WS_URL : 'ws://localhost:8000';
+    showToast(`Backend server offline. Reconnecting to ${wsTarget}...`, 'error');
     connectWebSocket();
     return;
   }
@@ -1056,11 +1100,10 @@ function startNewChat() {
 }
 
 function clearMessagesCanvas() {
-  messagesList.innerHTML = '';
-  const welcome = document.getElementById('welcome-view');
+  const chatContainer = document.getElementById('chat-messages') || document.getElementById('messages-list') || messagesList;
+  if (chatContainer) chatContainer.innerHTML = '';
+  const welcome = document.getElementById('welcome-view') || document.getElementById('hero-state');
   if (welcome) welcome.classList.remove('hidden');
-  const hero = document.getElementById('hero-state');
-  if (hero) hero.classList.remove('hidden');
   lifecycleBanner.classList.add('hidden');
 }
 
@@ -1113,6 +1156,7 @@ function applyTheme(theme) {
     if (btnToggleTheme) btnToggleTheme.setAttribute('title', 'Switch to Light Mode');
   }
   localStorage.setItem('theme', theme);
+  updateSidebarActiveHighlight();
 }
 
 function initTheme() {
