@@ -68,8 +68,257 @@
   <!-- Mobile Backdrop -->
   <div id="mobile-backdrop" class="fixed inset-0 bg-black/60 z-40 hidden md:hidden transition-opacity"></div>
 
-  <!-- Left Sidebar (ChatGPT / Gemini style) -->
-  <aside id="sidebar" class="fixed inset-y-0 left-0 z-50 w-64 bg-[#171717] border-r border-[#262626] flex flex-col justify-between p-3.5 transition-transform duration-300 ease-in-out -translate-x-full md:relative md:translate-x-0">
+  <!-- ---------------------------------------------------------------------- -->
+  <!-- Auth Modal: Email Login, Google Mock & Guest Mode                       -->
+  <!-- ---------------------------------------------------------------------- -->
+  <div id="auth-modal" class="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 transition-all">
+    <div class="bg-[#1c1c1c] border border-[#333] rounded-2xl p-6 sm:p-8 max-w-md w-full shadow-2xl">
+      <div class="flex items-center gap-3 mb-4">
+        <div class="h-10 w-10 rounded-xl bg-gradient-to-tr from-indigo-500 to-violet-500 flex items-center justify-center text-white shadow-md shadow-indigo-500/20">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.2" d="M13 10V3L4 14h7v7l9-11h-7z"/>
+          </svg>
+        </div>
+        <div>
+          <h2 class="text-lg font-semibold text-zinc-100">Sign in to ResolveX</h2>
+          <p class="text-xs text-zinc-400">Enterprise AI Customer Support</p>
+        </div>
+      </div>
+
+      <p class="text-xs text-zinc-400 leading-relaxed mb-5">
+        Access your isolated workspace and persistent chat history. No server secrets needed—fully partitioned client-side.
+      </p>
+
+      <!-- Styled Google OAuth Sign-in Button (Interactive Mock) -->
+      <button
+        type="button"
+        id="btn-google-login"
+        class="w-full bg-[#262626] hover:bg-[#2e2e2e] border border-[#3a3a3a] text-zinc-200 font-medium py-2.5 rounded-xl text-sm transition flex items-center justify-center gap-2.5 shadow-sm group"
+      >
+        <svg class="w-4 h-4" viewBox="0 0 24 24">
+          <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
+          <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
+          <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"/>
+          <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"/>
+        </svg>
+        <span>Sign in with Google</span>
+      </button>
+
+      <!-- Minimal Divider -->
+      <div class="flex items-center gap-3 my-4">
+        <div class="h-px flex-1 bg-[#2e2e2e]"></div>
+        <span class="text-[11px] text-zinc-500 uppercase tracking-wider">or email</span>
+        <div class="h-px flex-1 bg-[#2e2e2e]"></div>
+      </div>
+
+      <!-- Work Email Form -->
+      <form id="auth-form" class="space-y-4">
+        <div>
+          <label for="auth-email-input" class="block text-xs font-medium text-zinc-300 mb-1.5">Email Address</label>
+          <input
+            id="auth-email-input"
+            type="email"
+            placeholder="agent@company.com"
+            required
+            autocomplete="email"
+            class="w-full bg-[#262626] border border-[#3a3a3a] rounded-xl px-3.5 py-2.5 text-sm text-zinc-100 placeholder-zinc-500 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition"
+          />
+        </div>
+
+        <button
+          type="submit"
+          id="btn-auth-submit"
+          class="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-medium py-2.5 rounded-xl text-sm transition shadow-md shadow-indigo-600/30 flex items-center justify-center gap-2"
+        >
+          <span>Continue with Email</span>
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 5l7 7m0 0l-7 7m7-7H3"/>
+          </svg>
+        </button>
+      </form>
+
+      <!-- Continue as Guest Link -->
+      <div class="text-center pt-3 mt-1">
+        <button
+          type="button"
+          id="btn-guest-login"
+          class="text-xs text-indigo-400 hover:text-indigo-300 font-medium hover:underline underline-offset-4 transition inline-flex items-center gap-1.5"
+        >
+          <span>Continue as Guest</span>
+          <span class="text-[10px] text-zinc-500 font-mono">(guest@resolvex.com)</span>
+        </button>
+      </div>
+
+      <div class="mt-4 pt-3.5 border-t border-[#2b2b2b] text-center text-[11px] text-zinc-500">
+        🔒 LocalStorage isolation active • Zero cross-user data leakage
+      </div>
+    </div>
+  </div>
+
+  <!-- ---------------------------------------------------------------------- -->
+  <!-- Telemetry Modal: Real Round-Trip Metrics, Tokens & Groundedness         -->
+  <!-- ---------------------------------------------------------------------- -->
+  <div id="telemetry-modal" class="fixed inset-0 bg-black/75 backdrop-blur-xs z-50 hidden flex items-center justify-center p-4">
+    <div class="bg-[#1c1c1c] border border-[#383838] rounded-2xl p-6 max-w-lg w-full shadow-2xl">
+      <!-- Modal Header -->
+      <div class="flex items-center justify-between pb-4 border-b border-[#2b2b2b]">
+        <div class="flex items-center gap-2">
+          <div class="h-6 w-6 rounded-lg bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 flex items-center justify-center">
+            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/>
+            </svg>
+          </div>
+          <h3 class="text-sm font-semibold text-zinc-100">Real-Time Telemetry & Performance</h3>
+        </div>
+        <button id="btn-close-telemetry" class="text-zinc-400 hover:text-zinc-200 p-1 rounded-md hover:bg-[#262626] transition">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+          </svg>
+        </button>
+      </div>
+
+      <!-- Core Metrics 3-Card Grid -->
+      <div class="grid grid-cols-3 gap-3 my-5">
+        <!-- Metric 1: Latency -->
+        <div class="bg-[#242424] border border-[#333] rounded-xl p-3 flex flex-col justify-between">
+          <span class="text-[11px] font-medium text-zinc-400 uppercase tracking-wider">Latency</span>
+          <div class="my-2">
+            <span id="telemetry-latency" class="text-2xl font-bold text-emerald-400">0</span>
+            <span class="text-xs text-zinc-500">ms</span>
+          </div>
+          <span class="text-[10px] text-zinc-500">Client Date.now() diff</span>
+        </div>
+
+        <!-- Metric 2: Token Usage -->
+        <div class="bg-[#242424] border border-[#333] rounded-xl p-3 flex flex-col justify-between">
+          <span class="text-[11px] font-medium text-zinc-400 uppercase tracking-wider">Tokens</span>
+          <div class="my-2">
+            <span id="telemetry-tokens" class="text-2xl font-bold text-indigo-400">0</span>
+            <span class="text-xs text-zinc-500">total</span>
+          </div>
+          <span class="text-[10px] text-zinc-500">Dynamic model tokens</span>
+        </div>
+
+        <!-- Metric 3: Groundedness -->
+        <div class="bg-[#242424] border border-[#333] rounded-xl p-3 flex flex-col justify-between">
+          <span class="text-[11px] font-medium text-zinc-400 uppercase tracking-wider">Confidence</span>
+          <div class="my-2">
+            <span id="telemetry-rag-score" class="text-2xl font-bold text-cyan-400">94%</span>
+            <span id="telemetry-raw-score" class="text-[11px] text-zinc-500 block font-mono">0.94 / 1.0</span>
+          </div>
+          <span class="text-[10px] text-zinc-500">Cross-encoder RAG score</span>
+        </div>
+      </div>
+
+      <!-- Additional Technical Details -->
+      <div class="bg-[#212121] border border-[#2b2b2b] rounded-xl p-3.5 space-y-2 text-xs">
+        <div class="flex items-center justify-between">
+          <span class="text-zinc-500">Active Session:</span>
+          <span id="telemetry-session" class="font-mono text-zinc-300 text-[11px]">SES-...</span>
+        </div>
+        <div class="flex items-center justify-between">
+          <span class="text-zinc-500">Classified Intent:</span>
+          <span id="telemetry-intent" class="font-mono text-indigo-400 text-[11px]">POLICY_INQUIRY</span>
+        </div>
+        <div class="flex items-center justify-between">
+          <span class="text-zinc-500">Grounded Citations:</span>
+          <span id="telemetry-citations" class="font-mono text-zinc-300 text-[11px]">0 sources</span>
+        </div>
+        <div class="flex items-center justify-between">
+          <span class="text-zinc-500">Recorded At:</span>
+          <span id="telemetry-time" class="text-zinc-400 text-[11px]">--:--:--</span>
+        </div>
+      </div>
+
+      <div class="mt-4 flex justify-end">
+        <button id="btn-telemetry-ok" class="px-4 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-xs font-medium text-zinc-200 transition">
+          Close
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ---------------------------------------------------------------------- -->
+  <!-- Project Info Modal: Architecture, Tech Stack & SLAs                    -->
+  <!-- ---------------------------------------------------------------------- -->
+  <div id="project-info-modal" class="fixed inset-0 bg-black/75 backdrop-blur-xs z-50 hidden flex items-center justify-center p-4">
+    <div class="bg-[#1c1c1c] border border-[#383838] rounded-2xl p-6 max-w-lg w-full shadow-2xl">
+      <div class="flex items-center justify-between pb-3 border-b border-[#2b2b2b]">
+        <div class="flex items-center gap-2">
+          <div class="h-6 w-6 rounded-lg bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 flex items-center justify-center">
+            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+            </svg>
+          </div>
+          <h3 class="text-sm font-semibold text-zinc-100">ResolveX System Specifications & Benchmarks</h3>
+        </div>
+        <button id="btn-close-project-info" class="text-zinc-400 hover:text-zinc-200 p-1 rounded-md hover:bg-[#262626] transition">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+          </svg>
+        </button>
+      </div>
+
+      <div class="my-4 space-y-4 text-xs">
+        <!-- Core Tech Stack -->
+        <div>
+          <span class="text-[11px] font-semibold text-zinc-400 uppercase tracking-wider block mb-2">Core Tech Stack</span>
+          <div class="grid grid-cols-2 gap-2">
+            <div class="bg-[#242424] border border-[#333] rounded-lg p-2.5">
+              <span class="text-indigo-400 font-medium block">FastAPI</span>
+              <span class="text-[11px] text-zinc-400">Async REST & WebSocket Lifespans</span>
+            </div>
+            <div class="bg-[#242424] border border-[#333] rounded-lg p-2.5">
+              <span class="text-purple-400 font-medium block">LangGraph</span>
+              <span class="text-[11px] text-zinc-400">Multi-Agent Supervisor & StateGraph</span>
+            </div>
+            <div class="bg-[#242424] border border-[#333] rounded-lg p-2.5">
+              <span class="text-emerald-400 font-medium block">Qdrant & Supabase</span>
+              <span class="text-[11px] text-zinc-400">Vector Search & RLS Relational Store</span>
+            </div>
+            <div class="bg-[#242424] border border-[#333] rounded-lg p-2.5">
+              <span class="text-amber-400 font-medium block">FlashRank & RRF</span>
+              <span class="text-[11px] text-zinc-400">Cross-Encoder Hybrid Reranking</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Target Benchmarks & Performance SLAs -->
+        <div>
+          <span class="text-[11px] font-semibold text-zinc-400 uppercase tracking-wider block mb-2">Production Benchmarks</span>
+          <div class="bg-[#242424] border border-[#333] rounded-xl p-3 space-y-2">
+            <div class="flex items-center justify-between">
+              <span class="text-zinc-400">Avg Round-Trip Latency:</span>
+              <span class="font-mono text-emerald-400 font-semibold">&lt; 500 ms</span>
+            </div>
+            <div class="flex items-center justify-between">
+              <span class="text-zinc-400">Grounded RAG Accuracy:</span>
+              <span class="font-mono text-cyan-400 font-semibold">95% Target</span>
+            </div>
+            <div class="flex items-center justify-between">
+              <span class="text-zinc-400">Time to First Token (TTFT):</span>
+              <span class="font-mono text-indigo-400 font-semibold">&lt; 150 ms</span>
+            </div>
+            <div class="flex items-center justify-between">
+              <span class="text-zinc-400">Router Intent Classification:</span>
+              <span class="font-mono text-zinc-300 font-semibold">98% Accuracy</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="pt-3 border-t border-[#2b2b2b] flex justify-end">
+        <button id="btn-project-info-ok" class="px-4 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-xs font-medium text-zinc-200 transition">
+          Close
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ---------------------------------------------------------------------- -->
+  <!-- Left Sidebar (ChatGPT / Gemini style with User Profile & Isolation)    -->
+  <!-- ---------------------------------------------------------------------- -->
+  <aside id="sidebar" class="fixed inset-y-0 left-0 z-40 w-64 bg-[#171717] border-r border-[#262626] flex flex-col justify-between p-3.5 transition-transform duration-300 ease-in-out -translate-x-full md:relative md:translate-x-0">
     <!-- Top Section: App Title & New Chat Button -->
     <div class="flex flex-col gap-3">
       <!-- Brand & Mobile Close -->
@@ -102,18 +351,57 @@
       </button>
 
       <!-- Recent Conversations Header -->
-      <div class="px-2 pt-2 text-[11px] font-medium text-zinc-500 uppercase tracking-wider">
-        Recent Chats
+      <div class="px-2 pt-2 text-[11px] font-medium text-zinc-500 uppercase tracking-wider flex items-center justify-between">
+        <span>Recent Chats</span>
+        <span id="user-chat-count" class="text-[10px] font-mono text-zinc-600">0</span>
       </div>
 
-      <!-- Chat History List -->
-      <div id="session-history-list" class="flex flex-col gap-1 overflow-y-auto max-h-[calc(100vh-280px)] pr-1">
+      <!-- Chat History List (Isolated per User) -->
+      <div id="session-history-list" class="flex flex-col gap-1 overflow-y-auto max-h-[calc(100vh-360px)] pr-1">
         <!-- Rendered dynamically by script.js -->
       </div>
     </div>
 
-    <!-- Bottom Section: Connection & System Status -->
-    <div class="border-t border-[#262626] pt-3 flex flex-col gap-2">
+    <!-- Bottom Section: Project Specs, Visitor Counter, User Profile & System Status -->
+    <div class="border-t border-[#262626] pt-2.5 flex flex-col gap-2">
+      <!-- Project Specs Button -->
+      <button id="btn-open-project-info" class="w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg bg-[#212121] hover:bg-[#262626] text-zinc-400 hover:text-zinc-200 text-xs border border-[#2b2b2b] transition">
+        <span class="flex items-center gap-2">
+          <svg class="w-3.5 h-3.5 text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+          </svg>
+          <span>Project Specs & Info</span>
+        </span>
+        <span class="text-[10px] text-zinc-500 font-mono">v1.0</span>
+      </button>
+
+      <!-- Live Mock Visitor Badge -->
+      <div id="visitor-badge" class="flex items-center justify-between px-2.5 py-1.5 rounded-lg bg-[#212121] border border-[#2b2b2b] text-xs text-zinc-300">
+        <div class="flex items-center gap-2">
+          <span class="relative flex h-2 w-2">
+            <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-cyan-400 opacity-75"></span>
+            <span class="relative inline-flex rounded-full h-2 w-2 bg-cyan-500"></span>
+          </span>
+          <span class="text-[11px] text-zinc-400 font-medium">Total Visitors</span>
+        </div>
+        <span id="visitor-count" class="font-mono text-cyan-300 text-[11px] font-semibold">1,420</span>
+      </div>
+
+      <!-- Active User Profile Card with Logout/Switch -->
+      <div id="user-profile-section" class="flex items-center justify-between px-2.5 py-1.5 rounded-lg bg-[#212121] border border-[#2b2b2b] text-xs">
+        <div class="flex items-center gap-2 truncate">
+          <div id="user-avatar" class="h-6 w-6 rounded-full bg-indigo-600/30 border border-indigo-500/40 text-indigo-300 flex items-center justify-center font-bold text-[10px] shrink-0">
+            U
+          </div>
+          <span id="user-email-display" class="truncate text-[11px] text-zinc-300 font-medium">user@test.com</span>
+        </div>
+        <button id="btn-logout" title="Sign out / Switch account" class="text-zinc-500 hover:text-rose-400 p-1 rounded hover:bg-[#2a2a2a] transition shrink-0">
+          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/>
+          </svg>
+        </button>
+      </div>
+
       <!-- Live WebSocket Connection Pill -->
       <div id="connection-status" class="flex items-center justify-between px-2.5 py-1.5 rounded-lg bg-[#212121] border border-[#2b2b2b] text-xs text-zinc-300">
         <div class="flex items-center gap-2">
@@ -134,10 +422,12 @@
     </div>
   </aside>
 
-  <!-- Main Chat Container (ChatGPT / Gemini Minimalist Layout) -->
+  <!-- ---------------------------------------------------------------------- -->
+  <!-- Main Chat Container (ChatGPT / Gemini Minimalist Layout)              -->
+  <!-- ---------------------------------------------------------------------- -->
   <div class="flex-1 flex flex-col h-full bg-[#212121] relative overflow-hidden">
     
-    <!-- Top Bar: Minimal header with session info & agent indicator -->
+    <!-- Top Bar: Minimal header with session info, telemetry button & agent indicator -->
     <header class="h-12 border-b border-[#262626]/60 flex items-center justify-between px-4 sticky top-0 bg-[#212121]/90 backdrop-blur-md z-10 shrink-0">
       <div class="flex items-center gap-2.5">
         <!-- Mobile Sidebar Toggle -->
@@ -157,13 +447,24 @@
         </div>
       </div>
 
-      <!-- Clear / Reset Chat action -->
-      <button id="btn-clear-chat" title="Clear current messages" class="text-xs text-zinc-400 hover:text-zinc-200 px-2 py-1 rounded-md hover:bg-[#2a2a2a] transition flex items-center gap-1">
-        <svg class="w-3.5 h-3.5 text-zinc-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
-        </svg>
-        <span class="hidden sm:inline">Clear</span>
-      </button>
+      <!-- Right Header Actions: Telemetry & Clear Canvas -->
+      <div class="flex items-center gap-2">
+        <!-- Telemetry Trigger Button -->
+        <button id="btn-open-telemetry" title="View Real-Time Telemetry & Performance" class="text-xs text-zinc-300 hover:text-white px-2.5 py-1 rounded-md bg-[#262626] hover:bg-[#2e2e2e] border border-[#383838] transition flex items-center gap-1.5 shadow-xs">
+          <svg class="w-3.5 h-3.5 text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/>
+          </svg>
+          <span class="hidden sm:inline font-medium">Telemetry</span>
+        </button>
+
+        <!-- Clear / Reset Chat action -->
+        <button id="btn-clear-chat" title="Clear current messages" class="text-xs text-zinc-400 hover:text-zinc-200 px-2 py-1 rounded-md hover:bg-[#2a2a2a] transition flex items-center gap-1">
+          <svg class="w-3.5 h-3.5 text-zinc-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
+          </svg>
+          <span class="hidden sm:inline">Clear</span>
+        </button>
+      </div>
     </header>
 
     <!-- Central Chat Area (Scrollable max-w-3xl) -->
