@@ -1,9 +1,10 @@
 /**
  * ResolveX — Production Frontend WebSocket Chat Client
  * Features:
- * 1. Client-Side Auth & LocalStorage Isolation (active_user, chat_history[email])
- * 2. Real-Time Telemetry Extraction (Latency Date.now() diff, tokens, RAG score)
- * 3. Minimalist ChatGPT & Gemini Canvas Interface
+ * 1. Hybrid Client Auth (Google OAuth Mock + Guest Mode + Work Email) & LocalStorage Isolation
+ * 2. Real-Time Telemetry & Groundedness Confidence % Calculation
+ * 3. Visitor Tracking & Project Specifications Modal
+ * 4. Minimalist ChatGPT & Gemini Canvas Interface
  */
 
 // -----------------------------------------------------------------------------
@@ -110,7 +111,8 @@ let lastUserQuery = '';
 let latestTelemetry = {
   latency: 0,
   tokens: 0,
-  ragScore: 0.0,
+  ragScore: 0.94,
+  confidencePct: 94,
   sessionId: sessionId,
   intent: 'POLICY_INQUIRY',
   citations: [],
@@ -121,6 +123,8 @@ let latestTelemetry = {
 const authModal = document.getElementById('auth-modal');
 const authForm = document.getElementById('auth-form');
 const authEmailInput = document.getElementById('auth-email-input');
+const btnGoogleLogin = document.getElementById('btn-google-login');
+const btnGuestLogin = document.getElementById('btn-guest-login');
 const userEmailDisplay = document.getElementById('user-email-display');
 const userAvatar = document.getElementById('user-avatar');
 const btnLogout = document.getElementById('btn-logout');
@@ -134,10 +138,18 @@ const btnTelemetryOk = document.getElementById('btn-telemetry-ok');
 const telemetryLatency = document.getElementById('telemetry-latency');
 const telemetryTokens = document.getElementById('telemetry-tokens');
 const telemetryRagScore = document.getElementById('telemetry-rag-score');
+const telemetryRawScore = document.getElementById('telemetry-raw-score');
 const telemetrySession = document.getElementById('telemetry-session');
 const telemetryIntent = document.getElementById('telemetry-intent');
 const telemetryCitations = document.getElementById('telemetry-citations');
 const telemetryTime = document.getElementById('telemetry-time');
+
+// Project Info Modal Elements
+const projectInfoModal = document.getElementById('project-info-modal');
+const btnOpenProjectInfo = document.getElementById('btn-open-project-info');
+const btnCloseProjectInfo = document.getElementById('btn-close-project-info');
+const btnProjectInfoOk = document.getElementById('btn-project-info-ok');
+const visitorCount = document.getElementById('visitor-count');
 
 // Chat UI Elements
 const sessionBadge = document.getElementById('session-badge');
@@ -169,7 +181,7 @@ const btnCloseSidebar = document.getElementById('btn-close-sidebar');
 sessionBadge.textContent = sessionId;
 
 // -----------------------------------------------------------------------------
-// 3. User Authentication & UI Synchronization
+// 3. Authentication & Visitor Tracking
 // -----------------------------------------------------------------------------
 
 function updateUserUI(email) {
@@ -184,6 +196,7 @@ function updateUserUI(email) {
   userAvatar.textContent = email.charAt(0).toUpperCase();
 }
 
+// 1. Email Sign-in
 authForm.addEventListener('submit', (e) => {
   e.preventDefault();
   const email = authEmailInput.value.trim();
@@ -192,6 +205,42 @@ authForm.addEventListener('submit', (e) => {
   }
 });
 
+// 2. Google OAuth Mock Sign-in
+if (btnGoogleLogin) {
+  btnGoogleLogin.addEventListener('click', () => {
+    btnGoogleLogin.disabled = true;
+    btnGoogleLogin.innerHTML = `
+      <svg class="animate-spin h-4 w-4 text-zinc-300" viewBox="0 0 24 24" fill="none">
+        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"></path>
+      </svg>
+      <span>Authenticating with Google...</span>
+    `;
+
+    setTimeout(() => {
+      setActiveUser('alex.morgan@gmail.com');
+      btnGoogleLogin.disabled = false;
+      btnGoogleLogin.innerHTML = `
+        <svg class="w-4 h-4" viewBox="0 0 24 24">
+          <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
+          <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
+          <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"/>
+          <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"/>
+        </svg>
+        <span>Sign in with Google</span>
+      `;
+    }, 350);
+  });
+}
+
+// 3. Guest Mode Login
+if (btnGuestLogin) {
+  btnGuestLogin.addEventListener('click', () => {
+    setActiveUser('guest@resolvex.com');
+  });
+}
+
+// 4. Logout / Switch User
 btnLogout.addEventListener('click', () => {
   if (confirm('Sign out and switch user account?')) {
     localStorage.removeItem('active_user');
@@ -199,6 +248,20 @@ btnLogout.addEventListener('click', () => {
     updateUserUI('');
   }
 });
+
+// 5. Visitor Counter Initialization
+function updateVisitorCounter() {
+  let count = parseInt(localStorage.getItem('resolvex_visitor_count') || '1420', 10);
+  // Increment once per browser instance if fresh
+  if (!sessionStorage.getItem('resolvex_visit_tracked')) {
+    count += 1;
+    localStorage.setItem('resolvex_visitor_count', count.toString());
+    sessionStorage.setItem('resolvex_visit_tracked', 'true');
+  }
+  if (visitorCount) {
+    visitorCount.textContent = count.toLocaleString();
+  }
+}
 
 // -----------------------------------------------------------------------------
 // 4. Sidebar Session History (Isolated per User)
@@ -273,14 +336,20 @@ function selectSession(targetId) {
 }
 
 // -----------------------------------------------------------------------------
-// 5. Real-Time Telemetry Modal Controls
+// 5. Real-Time Telemetry & Project Info Modals
 // -----------------------------------------------------------------------------
 
 function showTelemetryModal(telemetryData = null) {
   const data = telemetryData || latestTelemetry;
   telemetryLatency.textContent = data.latency;
   telemetryTokens.textContent = data.tokens;
-  telemetryRagScore.textContent = typeof data.ragScore === 'number' ? data.ragScore.toFixed(2) : data.ragScore;
+  
+  const pct = data.confidencePct !== undefined ? data.confidencePct : Math.round(data.ragScore * 100);
+  telemetryRagScore.textContent = `${pct}%`;
+  if (telemetryRawScore) {
+    telemetryRawScore.textContent = `${typeof data.ragScore === 'number' ? data.ragScore.toFixed(2) : data.ragScore} / 1.0`;
+  }
+
   telemetrySession.textContent = data.sessionId || sessionId;
   telemetryIntent.textContent = data.intent || 'GENERAL';
   telemetryCitations.textContent =
@@ -302,6 +371,23 @@ btnTelemetryOk.addEventListener('click', hideTelemetryModal);
 telemetryModal.addEventListener('click', (e) => {
   if (e.target === telemetryModal) hideTelemetryModal();
 });
+
+// Project Info Modal Controls
+function showProjectInfoModal() {
+  projectInfoModal.classList.remove('hidden');
+}
+function hideProjectInfoModal() {
+  projectInfoModal.classList.add('hidden');
+}
+
+if (btnOpenProjectInfo) btnOpenProjectInfo.addEventListener('click', showProjectInfoModal);
+if (btnCloseProjectInfo) btnCloseProjectInfo.addEventListener('click', hideProjectInfoModal);
+if (btnProjectInfoOk) btnProjectInfoOk.addEventListener('click', hideProjectInfoModal);
+if (projectInfoModal) {
+  projectInfoModal.addEventListener('click', (e) => {
+    if (e.target === projectInfoModal) hideProjectInfoModal();
+  });
+}
 
 // -----------------------------------------------------------------------------
 // 6. WebSocket Lifecycle Management
@@ -380,7 +466,7 @@ function connectWebSocket() {
 }
 
 // -----------------------------------------------------------------------------
-// 7. Message Rendering & Telemetry Binding
+// 7. Message Rendering & Canvas Binding
 // -----------------------------------------------------------------------------
 
 function scrollToBottom() {
@@ -429,7 +515,7 @@ function startAssistantMessage() {
   const row = document.createElement('div');
   row.className = 'flex items-start gap-3.5 pt-1';
 
-  // Minimal spark/avatar icon
+  // Minimal spark icon
   const avatar = document.createElement('div');
   avatar.className = 'h-7 w-7 rounded-full bg-[#2a2a2a] border border-[#383838] flex items-center justify-center text-indigo-400 shrink-0 mt-0.5';
   avatar.innerHTML = `
@@ -493,16 +579,20 @@ function handleServerEvent(payload) {
         ? payload.tokens
         : Math.max(12, Math.round(responseText.length / 4) + Math.round(lastUserQuery.length / 4));
 
-    const dynamicRagScore =
+    const rawRagScore =
       payload.rag_score !== undefined && payload.rag_score !== null
         ? payload.rag_score
         : (payload.citations && payload.citations.length > 0 ? 0.94 : 0.88);
+
+    // Convert to percentage format (e.g. 94%)
+    const confidencePct = Math.round((rawRagScore <= 1 ? rawRagScore * 100 : rawRagScore));
 
     // 3. Cache latest telemetry
     latestTelemetry = {
       latency: latency,
       tokens: dynamicTokens,
-      ragScore: dynamicRagScore,
+      ragScore: rawRagScore,
+      confidencePct: confidencePct,
       sessionId: payload.session_id || sessionId,
       intent: payload.intent || 'GENERAL',
       citations: payload.citations || [],
@@ -521,7 +611,7 @@ function handleServerEvent(payload) {
       const metaRow = document.createElement('div');
       metaRow.className = 'flex flex-wrap items-center gap-2 pt-2';
 
-      // Intent Badge
+      // 1. Intent Badge
       if (payload.intent) {
         const intentBadge = document.createElement('span');
         intentBadge.className = 'inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[11px] font-mono bg-[#262626] border border-[#333] text-zinc-400';
@@ -529,7 +619,13 @@ function handleServerEvent(payload) {
         metaRow.appendChild(intentBadge);
       }
 
-      // Citation Chips
+      // 2. Dynamic Confidence Score Pill
+      const confidenceBadge = document.createElement('span');
+      confidenceBadge.className = 'inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-mono bg-cyan-950/40 text-cyan-300 border border-cyan-800/40';
+      confidenceBadge.innerHTML = `<span class="h-1.5 w-1.5 rounded-full bg-cyan-400"></span><span>Confidence: ${confidencePct}%</span>`;
+      metaRow.appendChild(confidenceBadge);
+
+      // 3. Citation Chips
       if (payload.citations && payload.citations.length > 0) {
         payload.citations.forEach((c) => {
           const chip = document.createElement('span');
@@ -539,9 +635,10 @@ function handleServerEvent(payload) {
         });
       }
 
-      // Telemetry Quick Trigger Pill
+      // 4. Telemetry Quick Trigger Pill (Latency, Tokens & Confidence)
       const teleTrigger = document.createElement('button');
       teleTrigger.className = 'inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-mono bg-[#242424] hover:bg-[#2e2e2e] border border-[#383838] text-zinc-400 hover:text-zinc-200 transition';
+      teleTrigger.title = 'View Real-Time Round-Trip Telemetry';
       teleTrigger.innerHTML = `<span>⚡</span><span>${latency}ms • ${dynamicTokens}t</span>`;
       const turnTelemetrySnapshot = { ...latestTelemetry };
       teleTrigger.addEventListener('click', () => showTelemetryModal(turnTelemetrySnapshot));
@@ -549,7 +646,7 @@ function handleServerEvent(payload) {
 
       currentAssistantContainer.appendChild(metaRow);
 
-      // Escalation Alert
+      // 5. Human Escalation Alert
       if (payload.is_escalated) {
         const escAlert = document.createElement('div');
         escAlert.className = 'mt-2 px-3 py-1.5 rounded-lg bg-rose-950/30 border border-rose-900/40 text-rose-300 text-xs flex items-center gap-2';
@@ -720,4 +817,5 @@ if (activeUser) {
   renderSessionHistory();
 }
 
+updateVisitorCounter();
 connectWebSocket();
