@@ -8,10 +8,31 @@
 [![Database](https://img.shields.io/badge/Database-Supabase%20PostgreSQL-3ECF8E.svg)](https://supabase.com)
 [![Tests Status](https://img.shields.io/badge/Tests-229%20Passed%20%2F%20100%25-brightgreen.svg)]()
 [![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Netlify Demo](https://img.shields.io/badge/Netlify-Live%20Demo-00C7B7.svg?logo=netlify&logoColor=white)](https://resolvex-ai.netlify.app/)
+[![Render Backend](https://img.shields.io/badge/Render-Backend%20Live-46E3B7.svg?logo=render&logoColor=white)](https://resolvex-bd8o.onrender.com)
+
+> 🚀 **Live Demo:** Try the deployed multi-agent customer support assistant live at **[https://resolvex-ai.netlify.app/](https://resolvex-ai.netlify.app/)**  
+> 🔗 **Backend API Service:** `https://resolvex-bd8o.onrender.com`
 
 **ResolveX** is an enterprise-grade AI customer support and resolution platform designed to automate high-volume e-commerce customer inquiries (order tracking, payment reconciliation, policy inquiries, order cancellations, and technical diagnostics) with strict groundedness, conversational memory, and autonomous human escalation.
 
 Built with **FastAPI**, **LangGraph Multi-Agent Architecture**, **Qdrant Vector DB**, **FlashRank Neural Reranking**, and **Supabase PostgreSQL**, ResolveX pairs a robust backend with a minimalist, high-contrast WebSocket client inspired by Gemini and ChatGPT.
+
+---
+
+## 🌐 Live Production Deployment
+
+ResolveX is fully deployed and accessible in production across cloud environments:
+
+| Component | Platform | Live URL / Endpoint | Details |
+| :--- | :--- | :--- | :--- |
+| **Frontend Interface** | **Netlify** | [https://resolvex-ai.netlify.app/](https://resolvex-ai.netlify.app/) | Hosted with global CDN caching, SPA redirects, and WebSocket streaming UI |
+| **Backend Orchestrator & API** | **Render** | [https://resolvex-bd8o.onrender.com](https://resolvex-bd8o.onrender.com) | FastAPI multi-agent engine with LangGraph, Qdrant Vector Cloud, and Supabase integrations |
+| **Interactive API Documentation** | **Render** | [https://resolvex-bd8o.onrender.com/docs](https://resolvex-bd8o.onrender.com/docs) | Complete OpenAPI / Swagger UI docs and interactive endpoint testing |
+
+- **Frontend Interface:** Hosted on **Netlify** with global CDN caching, SPA redirects, and WebSocket streaming UI (`https://resolvex-ai.netlify.app/`).
+- **Backend Orchestrator & API:** Hosted on **Render** running FastAPI with LangGraph, Qdrant, and Supabase integrations (`https://resolvex-bd8o.onrender.com`).
+- **Interactive API Documentation:** Link to OpenAPI Swagger docs at `https://resolvex-bd8o.onrender.com/docs`.
 
 ---
 
