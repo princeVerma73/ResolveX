@@ -663,31 +663,35 @@ The repository contains 3 active test suites covering connection setup, database
 
 ## 17. Deployment & Infrastructure Architecture
 
+### 17.1 Current Staging & Development Topology
+
+The staging environment leverages a containerized ASGI application running FastAPI and Uvicorn, interacting directly with Supabase Cloud services and the Google Gemini LLM API:
+
 ```mermaid
 graph TB
-    subgraph ClientEdge ["Client & Edge Layer [Planned]"]
+    subgraph ClientEdge ["Client & Edge Layer [Staging]"]
         UserDevice["User Browser / Mobile Device"]
         CDN["Static Frontend Hosting (Cloudflare / Vercel)"]
     end
 
     subgraph BackendHost ["Backend Application Host"]
         UvicornServer["Uvicorn ASGI Server [Implemented]"]
-        FastAPIApp["FastAPI Application [Partially Implemented]"]
-        AgentRuntime["LangGraph Agent Runtime [Planned]"]
+        FastAPIApp["FastAPI Application (Port 8000) [Implemented]"]
+        AgentRuntime["LangGraph Agent Runtime (SupportAgentOrchestrator) [Implemented]"]
     end
 
     subgraph SupabaseCloud ["Supabase Managed Cloud Platform [Implemented]"]
         PostgresDB[("PostgreSQL Database\n(customers, orders, payments, chat_sessions, messages, tickets)")]
-        VectorStore[("pgvector Extension (knowledge_embeddings) [Planned]")]
-        StorageBuckets["Storage Buckets (Policy Documents) [Planned]"]
+        VectorStore[("pgvector Extension (knowledge_embeddings) [Implemented]")]
+        StorageBuckets["Storage Buckets (Policy Documents) [Implemented]"]
     end
 
-    subgraph LLMCloud ["External AI Foundation Cloud [Planned]"]
-        GeminiAPI["Google Gemini API Cloud"]
+    subgraph LLMCloud ["External AI Foundation Cloud [Implemented]"]
+        GeminiAPI["Google Gemini 1.5 Flash API"]
     end
 
     UserDevice --> CDN
-    UserDevice -->|HTTPS REST| UvicornServer
+    UserDevice -->|HTTPS REST / WSS WebSocket| UvicornServer
     UvicornServer --> FastAPIApp
     FastAPIApp --> AgentRuntime
     AgentRuntime <--> GeminiAPI
@@ -695,6 +699,115 @@ graph TB
     FastAPIApp --> VectorStore
     FastAPIApp --> StorageBuckets
 ```
+
+---
+
+### 17.2 Enterprise SaaS AWS Target State Architecture
+
+To scale ResolveX into a multi-tenant B2B customer support platform serving thousands of concurrent e-commerce brands, the infrastructure transitions to a highly available, auto-scaling, fault-tolerant **AWS Enterprise Cloud Architecture**:
+
+```mermaid
+graph TB
+    subgraph EdgeLayer ["1. Global Edge & CDN Distribution"]
+        R53["AWS Route 53 (DNS & Failover)"]
+        WAF["AWS WAF (DDoS Mitigation & Rate Limiting)"]
+        CF["AWS CloudFront CDN\n(Embeddable Chat Widget & Dashboard Static Assets)"]
+    end
+
+    subgraph IngestionLayer ["2. Ingress & API Management Layer"]
+        APIGW["AWS API Gateway\n• REST & WebSocket APIs\n• Tenant API Key Validation & Usage Plans\n• Request Throttling & Routing"]
+        ALB["AWS Application Load Balancer (ALB)\n(Multi-AZ Health Probing & SSL Termination)"]
+    end
+
+    subgraph ComputeLayer ["3. Auto-Scaling Microservices & Agent Workers"]
+        subgraph ECSCluster ["AWS ECS (Fargate) / EKS Cluster"]
+            APITasks["FastAPI Application Containers\n(Auto-Scaled on CPU/Memory Metrics)"]
+            WorkerTasks["Celery / LangGraph Worker Containers\n(Asynchronous Agent Multi-Step Execution)"]
+            RAGWorkers["Document Vectorization Workers\n(PDF Chunking & Embedding Pipelines)"]
+        end
+    end
+
+    subgraph AsyncPipeline ["4. Asynchronous Event & Message Queue Pipeline"]
+        EventBridge["AWS EventBridge\n(Shopify / WooCommerce Webhooks & Domain Events)"]
+        SQSQueue["AWS SQS Queues\n(Webhook Buffer, RAG Tasks & Omnichannel Ingestion)"]
+        SQSDLQ["AWS SQS Dead Letter Queue (DLQ)\n(Failed Task Poison-Pill Quarantine)"]
+    end
+
+    subgraph DataStorageLayer ["5. Multi-Tenant Data & Storage Layer"]
+        RDS[("AWS Aurora PostgreSQL (Multi-AZ)\n• pgvector Extension for Tenant Embeddings\n• Row Level Security (RLS) Isolation\n• Relational Tables: Orders, Tickets, Customers")]
+        S3Buckets["AWS S3 Tenant Buckets\n(Isolated Knowledge Base PDFs & Attachments)\n[resolvex-tenant-{id}-docs]"]
+        ElastiCache[("AWS ElastiCache for Redis\n• Active WebSocket Connection Registry\n• Sliding-Window Rate Limiting Tokens\n• Conversational Session Memory Cache")]
+    end
+
+    subgraph AIOrchestrationLayer ["6. Multi-Model AI Orchestration Layer"]
+        PrimaryLLM["Google Gemini 1.5 Flash / Pro\n(Primary Agent Intent & Generation Engine)"]
+        Bedrock["AWS Bedrock (Multi-LLM Fallback Engine)\n• Anthropic Claude 3.5 Sonnet\n• Mistral Large\n• Amazon Titan Embeddings"]
+    end
+
+    subgraph SecurityObservability ["7. Security, Secrets & Telemetry"]
+        KMS["AWS KMS (Envelope Encryption at Rest)"]
+        SecretsMgr["AWS Secrets Manager (DB & API Credentials)"]
+        CloudWatch["AWS CloudWatch & OpenTelemetry\n(Distributed Tracing, Metrics & Anomaly Alarms)"]
+    end
+
+    %% Edge to Ingress
+    R53 --> WAF
+    WAF --> CF
+    CF --> APIGW
+    APIGW --> ALB
+    ALB --> APITasks
+
+    %% Webhook to Event Pipeline
+    APIGW --> EventBridge
+    EventBridge --> SQSQueue
+    SQSQueue --> WorkerTasks
+    SQSQueue --> RAGWorkers
+    SQSQueue -.-> SQSDLQ
+
+    %% Compute to Storage & Cache
+    APITasks --> RDS
+    APITasks --> ElastiCache
+    APITasks --> S3Buckets
+    WorkerTasks --> RDS
+    WorkerTasks --> ElastiCache
+    RAGWorkers --> S3Buckets
+    RAGWorkers --> RDS
+
+    %% S3 Event Trigger to RAG Workers
+    S3Buckets -.->|S3 ObjectCreated Event| SQSQueue
+
+    %% Compute to AI Orchestration
+    APITasks <--> PrimaryLLM
+    APITasks <--> Bedrock
+    WorkerTasks <--> PrimaryLLM
+    WorkerTasks <--> Bedrock
+
+    %% Security & Observability Links
+    SecretsMgr -.-> APITasks
+    KMS -.-> RDS
+    KMS -.-> S3Buckets
+    APITasks -.-> CloudWatch
+    WorkerTasks -.-> CloudWatch
+```
+
+---
+
+### 17.3 Enterprise AWS Architectural Component Specifications
+
+| AWS Component | Architectural Responsibility | Enterprise SaaS Justification |
+| :--- | :--- | :--- |
+| **AWS Route 53** | Global DNS routing, health checking, and latency-based routing. | Guarantees sub-10ms DNS resolution worldwide with automatic multi-region failover. |
+| **AWS CloudFront & WAF** | Global Content Delivery Network with edge caching and Layer 7 firewall protection. | Delivers the drop-in embeddable widget (`resolvex.js`) under 20ms globally. WAF mitigates volumetric DDoS attacks, brute-force exploits, and prompt injection attempts at the edge. |
+| **AWS API Gateway** | Central API entry point managing REST routes and bi-directional WebSocket connections. | Validates tenant API keys, enforces subscription-tier rate limits (e.g., 60 req/min for Free vs. 1000 req/min for Enterprise), and manages WebSocket connection state natively without maintaining long-lived server sockets. |
+| **AWS Application Load Balancer (ALB)** | Layer 7 load balancer distributing traffic across target groups in private VPC subnets. | Provides TLS 1.3 termination, path-based routing (`/api/*` vs `/ws/*`), and continuous zero-downtime rolling deployments. |
+| **AWS ECS (Fargate) / EKS** | Serverless container orchestration for FastAPI services and LangGraph agent runners. | Eliminates EC2 server management. Auto-scales container tasks from 2 to 50+ instances dynamically based on incoming CPU, memory, and concurrent chat connections. |
+| **AWS EventBridge & SQS** | Asynchronous event bus and message queues for webhooks and heavy background workloads. | Decouples synchronous customer chat latency from asynchronous operations (Shopify catalog sync, PDF document vectorization, email dispatch via AWS SES). Dead Letter Queues (DLQ) guarantee zero data loss on transient external outages. |
+| **AWS Aurora PostgreSQL / Supabase Enterprise** | Multi-AZ relational database with native `pgvector` indexing for tenant embeddings. | Provides ACID compliance, automatic storage auto-scaling up to 128TB, read replicas for high-frequency order tracking queries, and strict Row Level Security (RLS) ensuring strict cross-tenant data isolation. |
+| **AWS S3 (Tenant Buckets)** | Durable, encrypted object storage for tenant-specific policy documents and ticket attachments. | Employs dedicated bucket prefixes (`resolvex-tenant-{id}/`) with AWS KMS encryption. Emits S3 `ObjectCreated` events to SQS to automatically initiate text extraction, chunking, and embedding pipelines. |
+| **AWS ElastiCache (Redis)** | High-throughput in-memory caching and session state management. | Buffers active WebSocket sessions, tracks sliding-window token limits per tenant, and caches frequent order query responses for sub-millisecond retrieval. |
+| **AWS Bedrock (Multi-LLM Fallback)** | Managed foundation model hub providing Claude 3.5 Sonnet and Mistral Large. | Provides an enterprise-grade failover strategy: if Google Gemini experiences API rate limits or latency spikes, the orchestrator dynamically fails over to Claude 3.5 Sonnet on AWS Bedrock without customer interruption. |
+| **AWS KMS & Secrets Manager** | Centralized cryptographic key management and automated secret rotation. | Enforces envelope encryption for sensitive tenant data (PII, payment references, OAuth tokens) and automatically rotates third-party API credentials. |
+| **AWS CloudWatch & OpenTelemetry** | Unified observability, distributed tracing, and automated anomaly alerting. | Traces multi-agent execution steps across LangGraph nodes, measuring per-node latency, token consumption, and routing accuracy. |
 
 ---
 
@@ -752,19 +865,69 @@ sequenceDiagram
 
 ```mermaid
 flowchart LR
-    Phase0["Phase 0: Core Single-Company MVP\n• 7-table PostgreSQL schema [Done]\n• Pydantic domain models [Done]\n• Supabase client & tests [Done]\n• RAG pipeline & tools [Planned]\n• LangGraph agent & Chat UI [Planned]"]
+    Phase0["Phase 0: Core Single-Company MVP\n• 7-table PostgreSQL schema [Done]\n• Pydantic domain models [Done]\n• Supabase client & tests [Done]\n• RAG pipeline & hybrid reranking [Done]\n• LangGraph multi-agent & tools [Done]\n• FastAPI REST & WebSocket streaming [Done]"]
     
-    Phase1["Phase 1: Multi-Tenancy Architecture\n• Tenant context middleware\n• Multi-tenant RLS isolation\n• Organization onboarding APIs"]
+    Phase1["Phase 1: Multi-Tenancy Architecture\n• Tenant context middleware\n• Multi-tenant RLS isolation\n• Tenant-specific S3 RAG buckets\n• Organization onboarding APIs"]
     
-    Phase2["Phase 2: Connectors & Widget\n• Shopify & Stripe integrations\n• Drop-in Shadow DOM widget\n• Live agent support console"]
+    Phase2["Phase 2: Connectors & Widget\n• Shopify & WooCommerce integrations\n• Drop-in Shadow DOM widget\n• Live agent support console"]
     
-    Phase3["Phase 3: Telemetry & Scale\n• OpenTelemetry tracing\n• Continuous RAG Triad evaluation\n• Multi-region cloud scaling"]
+    Phase3["Phase 3: Telemetry & Scale\n• OpenTelemetry distributed tracing\n• Continuous RAG Triad evaluation\n• Multi-region cloud scaling"]
 
-    Phase0 --> Phase1 --> Phase2 --> Phase3
+    Phase4["Phase 4: AWS Enterprise Infrastructure\n• AWS API Gateway & ALB\n• AWS ECS Fargate auto-scaling\n• AWS Bedrock multi-LLM fallback"]
+
+    Phase5["Phase 5: SaaS Monetization & Metering\n• Stripe Billing subscriptions\n• Per-tenant token & step tracking\n• Enforced usage tier quotas"]
+
+    Phase6["Phase 6: Omnichannel Support\n• WhatsApp Business API & Social DMs\n• Inbound email processing (AWS SES)\n• Unified omnichannel agent inbox"]
+
+    Phase0 --> Phase1 --> Phase2 --> Phase3 --> Phase4 --> Phase5 --> Phase6
 ```
 
-### Key Evolutionary Focus Areas:
-1. **Multi-Tenant SaaS Migration**: Introduce `tenant_id` scoping across all relational tables, RLS policies, and vector embeddings.
-2. **Universal E-Commerce Connectors**: Develop integration adapters for Shopify, Stripe, WooCommerce, and OpenAPI 3.0 endpoints.
-3. **Embeddable Shadow DOM Widget**: Deliver a drop-in JavaScript widget supporting real-time streaming and customized brand themes.
-4. **Automated RAG Evaluation**: Implement evaluation pipelines measuring faithfulness, context relevance, and answer groundedness.
+---
+
+### Detailed Roadmap Phase Specifications
+
+#### Phase 0: Core Single-Company MVP [Completed]
+- 7-table relational schema covering customers, orders, items, payments, chat sessions, messages, and tickets.
+- End-to-end RAG pipeline with dense + sparse hybrid search, reciprocal rank fusion (RRF), FlashRank cross-encoder reranking, and citation-grounded generation.
+- 4-agent LangGraph supervisor graph (Triage, Orders, Technical Support, Escalation) with 206 automated tests passing at 100%.
+- FastAPI REST endpoints (`POST /api/chat`, `GET /api/sessions/{session_id}`, `GET /health`) and real-time `/ws/chat/{session_id}` WebSocket streaming.
+
+#### Phase 1: Multi-Tenancy Architecture [Planned]
+- **Tenant Context Middleware**: Extracts `tenant_id` from client API keys or subdomain headers and injects it into PostgreSQL session variables (`SET LOCAL app.current_tenant_id = '...'`).
+- **Multi-Tenant RLS Isolation**: Enforces Row Level Security across all database tables (`customers`, `orders`, `tickets`, `knowledge_embeddings`) to guarantee zero cross-tenant data leakage.
+- **Tenant-Specific RAG Knowledge Bases**: Isolated AWS S3 buckets (`resolvex-tenant-{tenant_id}-knowledge`) for tenant document uploads, triggering asynchronous chunking and `pgvector` embedding pipelines with strict `tenant_id` metadata tagging.
+- **Organization Onboarding APIs**: Self-service organization registration, role-based access control (Admin, Support Agent, Billing Manager), and API key management.
+
+#### Phase 2: Connectors & Embeddable Widget [Planned]
+- **Universal E-Commerce Connectors**: Pre-built OAuth connectors for Shopify, WooCommerce, and Magento, syncing product catalogs, order fulfillment statuses, and inventory in real time.
+- **Drop-in Shadow DOM Widget**: A lightweight, framework-agnostic JavaScript snippet (`resolvex.js`) rendering a customizable chat widget inside an isolated Shadow DOM to avoid CSS pollution with host e-commerce storefronts.
+- **Support Agent Live Console**: Web-based dashboard for human support agents to view escalated conversations, inspect diagnostic histories, and take over chat sessions in real time.
+
+#### Phase 3: Telemetry & Quality Evaluation [Planned]
+- **OpenTelemetry Distributed Tracing**: Comprehensive instrumentation tracking latency and execution traces across Intent Router, vector search, reranking, database queries, and LLM generation.
+- **Continuous RAG Triad Evaluation**: Automated offline and production evaluation measuring:
+  - *Context Relevance*: Precision and recall of retrieved knowledge chunks.
+  - *Groundedness*: Verification that LLM claims strictly originate from retrieved passages.
+  - *Answer Relevance*: Semantic alignment between customer query and synthesized resolution.
+
+#### Phase 4: AWS Enterprise Infrastructure [Planned]
+- **High-Availability Cloud Deployment**: Migration to containerized workloads on AWS ECS (Fargate) or EKS fronted by an Application Load Balancer (ALB) across multiple Availability Zones.
+- **Managed API Gateway**: AWS API Gateway managing tenant rate limiting, throttling, usage plans, and native WebSocket connection handling.
+- **AWS Bedrock Multi-Model Fallback Engine**: Multi-LLM routing layer utilizing Google Gemini as the primary engine with automatic zero-downtime failover to Anthropic Claude 3.5 Sonnet or Mistral Large via AWS Bedrock if the primary provider experiences latency degradation or rate limits.
+- **Asynchronous Webhook Processing**: AWS EventBridge and SQS handling third-party webhooks (e.g., Shopify order updates) with Dead Letter Queues (DLQ) preventing data loss during traffic spikes.
+
+#### Phase 5: SaaS Monetization & Usage Metering [Planned]
+- **Subscription Tiering via Stripe Billing**: Flexible SaaS pricing tiers:
+  - *Starter*: Up to 500 AI conversations/month, 5 policy documents, standard email support.
+  - *Pro*: Up to 5,000 AI conversations/month, 50 policy documents, live human escalation, Shopify connector.
+  - *Enterprise*: Unlimited conversations, custom RAG vector databases, dedicated SLA, custom SLA thresholds, and AWS Bedrock multi-model redundancy.
+- **Granular Usage Metering**: Real-time tracking of input/output token consumption, agent reasoning steps, and vector search operations per `tenant_id` to enforce billing quotas and automated overage billing.
+- **Customer Billing Dashboard**: Self-service portal displaying historical usage metrics, invoice downloads, and subscription plan management.
+
+#### Phase 6: Omnichannel Support [Planned]
+- **Multi-Channel Message Ingestion**: Expanding ResolveX beyond web chat to ingest and resolve customer inquiries from:
+  - *WhatsApp Business API*: Automated messaging via Twilio or Meta WhatsApp Cloud API.
+  - *Inbound Email (AWS SES)*: Parsing customer support emails via AWS SES, running through the LangGraph agent orchestrator, and generating grounded draft responses.
+  - *Social DMs*: Facebook Messenger and Instagram Direct Messaging integration.
+- **Unified Support Agent Inbox**: Single consolidated agent console merging asynchronous email and messaging threads with real-time WebSocket chats, preserving full multi-turn conversational context across all touchpoints.
+
