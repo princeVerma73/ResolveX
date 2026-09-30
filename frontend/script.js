@@ -1132,7 +1132,9 @@ updateUserUI(activeUser);
 if (activeUser) {
   saveSessionRecord(sessionId, 'Current Chat');
   renderSessionHistory();
+  loadSession(sessionId);
+} else {
+  connectWebSocket();
 }
 
 updateVisitorCounter();
-connectWebSocket();

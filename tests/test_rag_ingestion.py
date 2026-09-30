@@ -343,3 +343,13 @@ class TestQdrantAndMockOrders:
         assert order["estimated_delivery"] == "Tomorrow"
         assert any("Mechanical Keyboard" in it["product_name"] for it in order["items"])
 
+    def test_check_order_status_ord_5511(self):
+        from Backend.services import check_order_status
+        order = check_order_status("ORD-5511")
+        assert order["order_id"] == "ORD-5511"
+        assert order["status"] == "Processing"
+        assert order["carrier"] == "UPS"
+        assert order["estimated_delivery"] == "In 2 days"
+        assert any("Smart Fitness Band" in it["product_name"] for it in order["items"])
+
+

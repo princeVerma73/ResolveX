@@ -3077,4 +3077,29 @@ ResolveX implements zero-crash resilience across all operational boundaries. Non
 ### 3. Verification Suite
 All error handlers and guardrails are verified by dedicated test suites:
 - [test_guardrails_error_handling.py](file:///c:/INTERNSHIP/ResolveX/tests/test_guardrails_error_handling.py): 18 comprehensive tests covering all 9 edge cases and guardrail scenarios.
-- Complete regression suite: **225 passed tests** with 0 failures across 17 test modules.
+- Complete regression suite: **229 passed tests** with 0 failures across 17 test modules.
+
+---
+
+## Step 10: Policy Knowledge Base Ingestion (Qdrant), Mock Orders & Chat Session Restoration
+
+### 1. Qdrant Embedded Vector Knowledge Base Ingestion
+- **Pipeline Implementation**: [`Backend/rag/ingest.py`](file:///c:/INTERNSHIP/ResolveX/Backend/rag/ingest.py) and [`Backend/db/qdrant_client.py`](file:///c:/INTERNSHIP/ResolveX/Backend/db/qdrant_client.py).
+- **Embedded Collections**: `policy_documents` (comprehensive corporate policy index), `refund_policy`, `shipping_terms`, and `cancellation_rules`.
+- **Dimensional Vector Embeddings**: 768-dimensional Matryoshka representations generated using Google GenAI `gemini-embedding-001` with `task_type="RETRIEVAL_DOCUMENT"`.
+- **Query Verification**: Query *"What is your 30-day refund policy?"* achieves Cosine similarity score **`0.7695`** ($\ge 0.75$), grounding factual responses with verified source citations without defaulting to escalation fallbacks.
+
+### 2. Multi-Store Mock Orders Repository
+- **File Repository**: [`data/orders.json`](file:///c:/INTERNSHIP/ResolveX/data/orders.json) (synchronized with Supabase database).
+- **Standardized Orders**:
+  * `ORD-1001`: Status `"Delivered"`, Carrier `"FedEx"`, Tracking `FEDEX-9928172`, Items: `1x Wireless Headphones`.
+  * `ORD-8832`: Status `"In Transit"`, Carrier `"FedEx"`, Tracking `FEDEX-8832991`, Expected: `"Tomorrow"`, Items: `1x Mechanical Keyboard`.
+  * `ORD-5511`: Status `"Processing"`, Carrier `"UPS"`, Tracking `UPS-5511823`, Expected: `"In 2 days"`, Items: `1x Smart Fitness Band`.
+- **Service Integration**: [`Backend/services/order_service.py`](file:///c:/INTERNSHIP/ResolveX/Backend/services/order_service.py) exposes `check_order_status(order_id)`.
+
+### 3. Frontend Chat Session Restoration & Active Item Highlight
+- **Session Switching**: Clicking any recent chat in the sidebar invokes `loadSession(sessionId)`.
+- **Canvas State**: Hides the welcome prompt cards (`heroState.classList.add('hidden')`), clears the message container, and restores chronological user/assistant message turns from `localStorage`.
+- **Metadata Restoration**: Restores intent badges, dynamic confidence pills, citations, and interactive telemetry triggers (`⚡ ms • tokens`).
+- **Sidebar Highlighting**: Applies visual focus (`bg-zinc-800 text-white font-medium border border-zinc-700 shadow-sm`) to the currently active conversation.
+
