@@ -6,6 +6,7 @@ from Backend.services.order_service import OrderService, check_order_status
 from Backend.services.payment_service import PaymentService
 from Backend.services.chat_service import ChatService
 from Backend.services.ticket_service import TicketService
+from Backend.services.redis_cache import RedisCacheService, get_redis_cache, redis_cache
 
 __all__ = [
     "BaseService",
@@ -15,5 +16,8 @@ __all__ = [
     "PaymentService",
     "ChatService",
     "TicketService",
+    "RedisCacheService",
+    "get_redis_cache",
+    "redis_cache",
 ]
 

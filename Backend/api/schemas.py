@@ -63,6 +63,10 @@ class ChatResponse(BaseModel):
         default_factory=dict,
         description="Tool execution results, diagnostic reports, or mutation receipts",
     )
+    source: str | None = Field(
+        default="ORCHESTRATOR",
+        description="Origin of resolution: REDIS_CACHE or ORCHESTRATOR",
+    )
 
 
 class SessionHistoryResponse(BaseModel):

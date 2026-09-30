@@ -19,6 +19,7 @@ if str(ROOT_DIR) not in sys.path:
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from Backend.agent.graph import SupportAgentOrchestrator
+from Backend.services.redis_cache import redis_cache
 
 logger = logging.getLogger(__name__)
 
@@ -135,7 +136,62 @@ async def websocket_chat_endpoint(websocket: WebSocket, session_id: str) -> None
                 },
             )
 
-            # 3. Emit 'routing' lifecycle event
+            # Check Redis cache for sub-10ms lookup
+            cached_data = await redis_cache.get_cached_response(query)
+            if cached_data:
+                logger.info("WebSocket Redis Cache HIT: query='%s'", query[:40])
+                await manager.send_json(
+                    websocket,
+                    {
+                        "event": "routing",
+                        "status": "Resolved instantly via Redis Cache (sub-10ms lookup)",
+                    },
+                )
+
+                cached_citations = cached_data.get("citations", [])
+                if cached_citations:
+                    await manager.send_json(
+                        websocket,
+                        {
+                            "event": "retrieval",
+                            "chunks_count": len(cached_citations),
+                            "citations": cached_citations,
+                            "source": "REDIS_CACHE",
+                        },
+                    )
+
+                cached_text = cached_data.get("response", "")
+                words = cached_text.split(" ")
+                for i, word in enumerate(words):
+                    chunk_text = word if i == 0 else " " + word
+                    await manager.send_json(
+                        websocket,
+                        {
+                            "event": "token",
+                            "delta": chunk_text,
+                        },
+                    )
+                    await asyncio.sleep(0.002)
+
+                await manager.send_json(
+                    websocket,
+                    {
+                        "event": "done",
+                        "session_id": session_id,
+                        "response": cached_text,
+                        "intent": cached_data.get("intent", "POLICY_INQUIRY"),
+                        "citations": cached_citations,
+                        "tokens": len(words),
+                        "rag_score": 1.0,
+                        "is_escalated": False,
+                        "clarification_needed": False,
+                        "action_results": cached_data.get("action_results", {}),
+                        "source": "REDIS_CACHE",
+                    },
+                )
+                continue
+
+            # 3. Cache MISS: Emit 'routing' lifecycle event
             await manager.send_json(
                 websocket,
                 {
@@ -206,7 +262,21 @@ async def websocket_chat_endpoint(websocket: WebSocket, session_id: str) -> None
                 else:
                     rag_score = 0.92
 
-                # 8. Emit 'done' completion event
+                # 8. Cache grounded policy inquiries in Redis
+                if redis_cache.should_cache(
+                    intent=intent_val,
+                    is_escalated=state.is_escalated,
+                    clarification_needed=state.clarification_needed,
+                ):
+                    cache_payload = {
+                        "response": final_text,
+                        "intent": intent_val,
+                        "citations": citations,
+                        "action_results": state.action_results,
+                    }
+                    await redis_cache.set_cached_response(query, cache_payload)
+
+                # 9. Emit 'done' completion event
                 await manager.send_json(
                     websocket,
                     {
@@ -220,6 +290,7 @@ async def websocket_chat_endpoint(websocket: WebSocket, session_id: str) -> None
                         "is_escalated": state.is_escalated,
                         "clarification_needed": state.clarification_needed,
                         "action_results": state.action_results,
+                        "source": "ORCHESTRATOR",
                     },
                 )
 

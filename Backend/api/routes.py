@@ -29,6 +29,7 @@ from Backend.api.schemas import (
 from Backend.core.exceptions import ResourceNotFoundError
 from Backend.db.supabase_client import verify_connection
 from Backend.services.chat_service import ChatService
+from Backend.services.redis_cache import redis_cache
 
 logger = logging.getLogger(__name__)
 
@@ -108,7 +109,49 @@ async def chat_endpoint(
     session_id = payload.session_id or f"SES-{uuid.uuid4().hex[:12].upper()}"
 
     try:
-        # Execute LangGraph Multi-Agent Pipeline
+        # 1. High-throughput Redis Cache check (sub-10ms lookup)
+        cached = await redis_cache.get_cached_response(clean_query)
+        if cached:
+            logger.info("Redis cache HIT for query: '%s'", clean_query[:50])
+            # Best-effort message logging to ChatService (non-blocking)
+            try:
+                from Backend.schemas.chat import MessageCreate
+                from Backend.schemas.common import SenderType
+
+                chat_svc.add_message(
+                    MessageCreate(
+                        session_id=session_id,
+                        sender_type=SenderType.USER,
+                        content=clean_query,
+                    )
+                )
+                if cached.get("response"):
+                    chat_svc.add_message(
+                        MessageCreate(
+                            session_id=session_id,
+                            sender_type=SenderType.AGENT,
+                            content=cached["response"],
+                        )
+                    )
+            except Exception as exc:
+                logger.debug("Chat session message persistence skipped: %s", exc)
+
+            return ChatResponse(
+                session_id=session_id,
+                customer_id=payload.customer_id,
+                query=clean_query,
+                response=cached.get("response", ""),
+                intent=cached.get("intent", "POLICY_INQUIRY"),
+                confidence=cached.get("confidence", 0.98),
+                citations=cached.get("citations", []),
+                is_escalated=False,
+                clarification_needed=False,
+                entities=cached.get("entities", {}),
+                action_results=cached.get("action_results", {}),
+                source="REDIS_CACHE",
+            )
+
+        # 2. Cache MISS: Execute LangGraph Multi-Agent Pipeline
         state = await orchestrator.arun(
             query=clean_query,
             session_id=session_id,
@@ -146,6 +189,22 @@ async def chat_endpoint(
             else None
         )
 
+        # 3. Cache population on grounded policy inquiries only
+        if redis_cache.should_cache(
+            intent=intent_val,
+            is_escalated=state.is_escalated,
+            clarification_needed=state.clarification_needed,
+        ):
+            cache_payload = {
+                "response": state.final_response,
+                "intent": intent_val,
+                "confidence": confidence_val,
+                "citations": citations,
+                "entities": entities_dict,
+                "action_results": state.action_results,
+            }
+            await redis_cache.set_cached_response(clean_query, cache_payload)
+
         # Best-effort message logging to ChatService (non-blocking)
         try:
             from Backend.schemas.chat import MessageCreate
@@ -181,6 +240,7 @@ async def chat_endpoint(
             clarification_needed=state.clarification_needed,
             entities=entities_dict,
             action_results=state.action_results,
+            source="ORCHESTRATOR",
         )
 
     except HTTPException:

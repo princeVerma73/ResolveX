@@ -18,8 +18,9 @@ pydantic>=2.7.0
 pydantic-settings>=2.2.0
 python-dotenv>=1.0.0
 
-# --- Database & Persistent Storage ---
+# --- Database, Persistent Storage & Caching ---
 supabase>=2.0.0
+redis>=5.0.0
 
 # --- RAG, Vector Search & Neural Reranking ---
 qdrant-client>=1.9.0
