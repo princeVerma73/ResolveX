@@ -2,9 +2,15 @@
 Order service module for purchase orders and order item operations.
 """
 
+import json
+import logging
 import uuid
 from decimal import Decimal
+from pathlib import Path
 from typing import Any
+
+ROOT_DIR = Path(__file__).resolve().parent.parent.parent
+logger = logging.getLogger(__name__)
 
 from Backend.core.exceptions import (
     DatabaseOperationError,
@@ -277,4 +283,67 @@ class OrderService(BaseService):
                 operation="update_order_status",
                 reason="Cannot ship or deliver a cancelled order.",
             )
+
+    def check_order_status(self, order_id: str) -> dict[str, Any]:
+        """Retrieves structured order status and tracking information for an order ID.
+
+        Checks local order repository (data/orders.json) first, falling back to Supabase.
+        """
+        return check_order_status(order_id, client=self.client)
+
+
+def check_order_status(order_id: str, client: Any = None) -> dict[str, Any]:
+    """Retrieves structured order status and information for a given order ID.
+
+    WHAT:
+        Provides structured order tracking data for customer inquiries, returning status,
+        line items, carrier, tracking number, and delivery estimates.
+
+    WHY:
+        Enables deterministic, hallucination-free order status checks from both local mock
+        repository (data/orders.json) and Supabase database.
+
+    Args:
+        order_id: Unique order identifier (e.g., 'ORD-1001', 'ORD-8832').
+        client: Optional Supabase client instance.
+
+    Returns:
+        Structured dictionary with order details.
+
+    Raises:
+        ResourceNotFoundError: If the order does not exist in any storage.
+    """
+    clean_id = (order_id or "").strip()
+    if not clean_id:
+        raise ResourceNotFoundError(resource_type="Order", resource_id="")
+
+    # 1. Check local mock storage data/orders.json
+    json_path = ROOT_DIR / "data" / "orders.json"
+    if json_path.exists():
+        try:
+            with open(json_path, "r", encoding="utf-8") as f:
+                orders_data = json.load(f)
+            # Try case-sensitive, uppercase, and case-insensitive
+            if clean_id in orders_data:
+                return orders_data[clean_id]
+            upper_id = clean_id.upper()
+            if upper_id in orders_data:
+                return orders_data[upper_id]
+            for k, v in orders_data.items():
+                if k.lower() == clean_id.lower():
+                    return v
+        except Exception as exc:
+            logger.warning("Error reading data/orders.json: %s", exc)
+
+    # 2. Check Supabase database
+    try:
+        svc = OrderService(client=client) if client else OrderService()
+        details = svc.get_order_with_details(clean_id)
+        return details.model_dump(mode="json")
+    except ResourceNotFoundError:
+        raise
+    except Exception as exc:
+        logger.error("Supabase order lookup failed for %s: %s", clean_id, exc)
+        raise ResourceNotFoundError(resource_type="Order", resource_id=clean_id) from exc
+
 

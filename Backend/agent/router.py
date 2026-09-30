@@ -50,7 +50,7 @@ if ENV_PATH.exists():
 else:
     load_dotenv()
 
-DEFAULT_ROUTER_MODEL = os.getenv("ROUTER_MODEL", "gemini-1.5-flash").strip()
+DEFAULT_ROUTER_MODEL = os.getenv("ROUTER_MODEL", "gemini-3.1-flash-lite").strip()
 
 logger = logging.getLogger(__name__)
 

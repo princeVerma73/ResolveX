@@ -1,0 +1,65 @@
+{
+  "ORD-1001": {
+    "order_id": "ORD-1001",
+    "customer_id": "CUST-1001",
+    "status": "Delivered",
+    "carrier": "FedEx",
+    "tracking_number": "FEDEX-9928172",
+    "shipping_address": "123 Market St, San Francisco, CA",
+    "estimated_delivery": "2026-09-30T12:00:00Z",
+    "total_amount": 99.99,
+    "currency": "USD",
+    "items": [
+      {
+        "item_id": "ITEM-1001-1",
+        "order_id": "ORD-1001",
+        "product_name": "Wireless Headphones",
+        "quantity": 1,
+        "unit_price": 99.99
+      }
+    ],
+    "payments": []
+  },
+  "ORD-8832": {
+    "order_id": "ORD-8832",
+    "customer_id": "CUST-1001",
+    "status": "In Transit",
+    "carrier": "FedEx",
+    "tracking_number": "FEDEX-8832991",
+    "shipping_address": "456 Elm St, New York, NY",
+    "estimated_delivery": "Tomorrow",
+    "total_amount": 149.50,
+    "currency": "USD",
+    "items": [
+      {
+        "item_id": "ITEM-8832-1",
+        "order_id": "ORD-8832",
+        "product_name": "Mechanical Keyboard",
+        "quantity": 1,
+        "unit_price": 149.50
+      }
+    ],
+    "payments": []
+  },
+  "ORD-5511": {
+    "order_id": "ORD-5511",
+    "customer_id": "CUST-1001",
+    "status": "Processing",
+    "carrier": "UPS",
+    "tracking_number": "UPS-5511823",
+    "shipping_address": "789 Pine St, Seattle, WA",
+    "estimated_delivery": "In 2 days",
+    "total_amount": 79.99,
+    "currency": "USD",
+    "items": [
+      {
+        "item_id": "ITEM-5511-1",
+        "order_id": "ORD-5511",
+        "product_name": "Smart Fitness Band",
+        "quantity": 1,
+        "unit_price": 79.99
+      }
+    ],
+    "payments": []
+  }
+}

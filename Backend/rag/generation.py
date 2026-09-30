@@ -58,7 +58,7 @@ if ENV_PATH.exists():
 else:
     load_dotenv()
 
-DEFAULT_GENERATION_MODEL = os.getenv("GENERATION_MODEL", "gemini-1.5-flash").strip()
+DEFAULT_GENERATION_MODEL = os.getenv("GENERATION_MODEL", "gemini-3.1-flash-lite").strip()
 MIN_CONFIDENCE_THRESHOLD = 0.0001
 
 logger = logging.getLogger(__name__)

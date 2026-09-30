@@ -310,3 +310,36 @@ class TestDatabaseUpsertAndVerification:
         engine = PolicyIngestionEngine(supabase_client=mock_db, dimension=768)
         with pytest.raises(AssertionError, match="invalid dimension 128"):
             engine.verify_ingestion()
+
+
+# =============================================================================
+# 6. Qdrant Knowledge Base & Mock Orders Verification
+# =============================================================================
+
+class TestQdrantAndMockOrders:
+    """Verifies Qdrant knowledge base indexing and mock orders repository."""
+
+    def test_qdrant_collection_indexing(self):
+        from Backend.db.qdrant_client import get_qdrant_client, DEFAULT_COLLECTION_NAME
+        client = get_qdrant_client()
+        assert client.collection_exists(DEFAULT_COLLECTION_NAME)
+        info = client.get_collection(DEFAULT_COLLECTION_NAME)
+        assert info.points_count > 0
+
+    def test_check_order_status_ord_1001(self):
+        from Backend.services import check_order_status
+        order = check_order_status("ORD-1001")
+        assert order["order_id"] == "ORD-1001"
+        assert order["status"] == "Delivered"
+        assert order["carrier"] == "FedEx"
+        assert any("Wireless Headphones" in it["product_name"] for it in order["items"])
+
+    def test_check_order_status_ord_8832(self):
+        from Backend.services import check_order_status
+        order = check_order_status("ORD-8832")
+        assert order["order_id"] == "ORD-8832"
+        assert order["status"] == "In Transit"
+        assert order["carrier"] == "FedEx"
+        assert order["estimated_delivery"] == "Tomorrow"
+        assert any("Mechanical Keyboard" in it["product_name"] for it in order["items"])
+
