@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import logging
 import sys
+import uuid
 from pathlib import Path
 from typing import Any
 
@@ -32,9 +33,12 @@ ROOT_DIR = Path(__file__).resolve().parent.parent.parent
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
+from pydantic import ValidationError
+
 from Backend.agent.state import AgentState
 from Backend.agent.technical_support import TechnicalSupportAgent
 from Backend.core.exceptions import (
+    DatabaseOperationError,
     InvalidOperationError,
     ResourceNotFoundError,
     ResolveXException,
@@ -101,27 +105,92 @@ def policy_rag_node(
         # Step 1: Parallel Hybrid Retrieval
         dense_results, sparse_results = retriever_inst.retrieve_parallel(query, limit=20)
 
+        # Guard: Empty KB or Vector Search below 0.65 similarity
+        from Backend.core.guardrails import RETRIEVAL_SIMILARITY_FLOOR
+        is_empty_kb = not dense_results and not sparse_results
+        sub_floor_vector = bool(
+            dense_results
+            and max(c.score for c in dense_results) < RETRIEVAL_SIMILARITY_FLOOR
+            and not sparse_results
+        )
+
+        if is_empty_kb or sub_floor_vector:
+            logger.info(
+                "Retrieval returned empty or sub-%.2f similarity for query: %s",
+                RETRIEVAL_SIMILARITY_FLOOR,
+                query[:50],
+            )
+            ticket_ref = f"TCK-{uuid.uuid4().hex[:4].upper()}"
+            state.retrieved_chunks = []
+            state.final_response = (
+                f"I apologize, but our official support policy documents do not contain sufficient "
+                f"information to resolve your specific inquiry. Your inquiry has been escalated to a "
+                f"support specialist (Ticket #{ticket_ref}). A representative will follow up with you shortly."
+            )
+            state.action_results["escalation_payload"] = {
+                "ticket_id": ticket_ref,
+                "status": "ESCALATED",
+            }
+            state.is_escalated = True
+            return state
+
         # Step 2: Reciprocal Rank Fusion
         fused_candidates = reciprocal_rank_fusion(dense_results, sparse_results, top_n=20)
 
         # Step 3: Cross-Encoder Re-Ranking
         ranked_chunks = reranker_inst.rerank(query=query, candidates=fused_candidates, top_k=3)
 
+        if not ranked_chunks:
+            ticket_ref = f"TCK-{uuid.uuid4().hex[:4].upper()}"
+            state.retrieved_chunks = []
+            state.final_response = (
+                f"I apologize, but our official support policy documents do not contain sufficient "
+                f"information to resolve your specific inquiry. Your inquiry has been escalated to a "
+                f"support specialist (Ticket #{ticket_ref}). A representative will follow up with you shortly."
+            )
+            state.action_results["escalation_payload"] = {
+                "ticket_id": ticket_ref,
+                "status": "ESCALATED",
+            }
+            state.is_escalated = True
+            return state
+
         # Step 4: Grounded Generation & Citation Alignment
         grounded_resp = generator_inst.generate_resolution(query=query, ranked_chunks=ranked_chunks)
 
         # Step 5: State Hydration
         state.retrieved_chunks = list(ranked_chunks)
-        state.final_response = grounded_resp.response_text
         state.is_escalated = grounded_resp.is_escalated
         state.clarification_needed = grounded_resp.clarification_needed
+        if state.is_escalated:
+            ticket_ref = f"TCK-{uuid.uuid4().hex[:4].upper()}"
+            if "Ticket #" not in grounded_resp.response_text:
+                state.final_response = (
+                    f"{grounded_resp.response_text.rstrip('. ')}. "
+                    f"Your inquiry has been escalated to a support specialist (Ticket #{ticket_ref}). "
+                    f"A representative will follow up with you shortly."
+                )
+            else:
+                state.final_response = grounded_resp.response_text
+            state.action_results["escalation_payload"] = {
+                "ticket_id": ticket_ref,
+                "status": "ESCALATED",
+            }
+        else:
+            state.final_response = grounded_resp.response_text
 
     except Exception as exc:
         logger.error("Error during policy_rag_node execution: %s", exc)
+        ticket_ref = f"TCK-{uuid.uuid4().hex[:4].upper()}"
         state.final_response = (
-            "I apologize, but I encountered an issue retrieving our policy documentation. "
-            "Your inquiry has been escalated to a support specialist."
+            f"I apologize, but I encountered an issue retrieving our policy documentation. "
+            f"Your inquiry has been escalated to a support specialist (Ticket #{ticket_ref}). "
+            f"A representative will follow up with you shortly."
         )
+        state.action_results["escalation_payload"] = {
+            "ticket_id": ticket_ref,
+            "status": "ESCALATED",
+        }
         state.is_escalated = True
 
     return state
@@ -200,10 +269,22 @@ def db_lookup_node(
                 )
                 return state
 
-            except ResourceNotFoundError:
+            except (ResourceNotFoundError, DatabaseOperationError):
                 state.db_lookup_results = {
                     "type": "order",
                     "error": f"Order '{order_id}' was not found.",
+                }
+                state.final_response = (
+                    f"I could not find an order with ID '{order_id}'. "
+                    f"Please verify your order number and try again."
+                )
+                state.clarification_needed = True
+                return state
+            except Exception as exc:
+                logger.error("Unexpected error looking up order %s: %s", order_id, exc)
+                state.db_lookup_results = {
+                    "type": "order",
+                    "error": str(exc),
                 }
                 state.final_response = (
                     f"I could not find an order with ID '{order_id}'. "
@@ -445,7 +526,20 @@ def action_engine_node(
                     "reason": "Order not found",
                     "order_id": order_id,
                 }
-                state.final_response = f"Cannot process cancellation: Order '{order_id}' does not exist."
+                state.final_response = (
+                    f"I could not find an order with ID '{order_id}'. "
+                    f"Please verify your order number and try again."
+                )
+                state.clarification_needed = True
+                return state
+
+            except ValidationError as val_err:
+                logger.warning("Pydantic validation failed for order cancellation: %s", val_err)
+                field_name = str(val_err.errors()[0]["loc"][-1]) if val_err.errors() else "parameter"
+                state.action_results = {"status": "failed", "reason": f"Invalid {field_name}"}
+                state.final_response = (
+                    f"The provided {field_name} is invalid. Please verify and provide a valid {field_name}."
+                )
                 state.clarification_needed = True
                 return state
 
@@ -502,12 +596,8 @@ def escalation_node(
         Updated `AgentState` flagged for human escalation.
     """
     state.is_escalated = True
-
-    if not state.final_response:
-        state.final_response = (
-            "Your inquiry has been escalated to our human support team. "
-            "A specialist has been notified and will assist you shortly."
-        )
+    sess_id = state.session_id or f"sess_{uuid.uuid4().hex[:8]}"
+    offline_ref = f"TCK-TEMP-{uuid.uuid4().hex[:8].upper()}"
 
     escalation_reason = (
         getattr(state.route_decision, "reasoning", None)
@@ -515,13 +605,61 @@ def escalation_node(
         else "Customer requested human specialist assistance."
     )
 
+    ticket_id = offline_ref
+    ticket_created = False
+
+    # Attempt persistent ticket creation if ticket service is available
+    if ticket_service is not None:
+        try:
+            from Backend.schemas.common import TicketPriority
+            from Backend.schemas.ticket import TicketCreate
+
+            ticket_payload = TicketCreate(
+                customer_id=state.customer_id,
+                subject=f"Escalation for session {sess_id}",
+                description=f"Query: {state.current_query}\nReason: {escalation_reason}",
+                priority=TicketPriority.HIGH,
+            )
+            created_ticket = ticket_service.create_ticket(ticket_payload)
+            ticket_id = created_ticket.ticket_id
+            ticket_created = True
+        except Exception as exc:
+            logger.warning(
+                "Ticket creation failed (%s). Providing temporary offline reference ID: %s",
+                exc,
+                offline_ref,
+            )
+            ticket_id = offline_ref
+            ticket_created = False
+
     state.action_results["escalation_payload"] = {
         "session_id": state.session_id,
         "customer_id": state.customer_id,
         "query": state.current_query,
         "reason": escalation_reason,
         "status": "ESCALATED",
+        "ticket_id": ticket_id,
+        "is_offline_ref": not ticket_created,
     }
+
+    ticket_tag = f"(Ticket #{ticket_id})"
+    if not state.final_response:
+        if ticket_created:
+            state.final_response = (
+                f"Your inquiry has been escalated to our human support team {ticket_tag} under ticket ID '{ticket_id}'. "
+                "A representative will follow up with you shortly."
+            )
+        else:
+            state.final_response = (
+                f"Your inquiry has been escalated to our human support team {ticket_tag}. "
+                f"We have registered your request under temporary reference ID '{ticket_id}'. "
+                "A representative will follow up with you shortly."
+            )
+    elif "Ticket #" not in state.final_response:
+        state.final_response = (
+            f"{state.final_response.rstrip('. ')} {ticket_tag}. "
+            "A representative will follow up with you shortly."
+        )
 
     return state
 

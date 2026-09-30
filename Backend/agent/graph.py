@@ -46,6 +46,7 @@ from Backend.agent.nodes import (
 from Backend.agent.router import IntentRouter, IntentType
 from Backend.agent.state import AgentState
 from Backend.agent.technical_support import TechnicalSupportAgent
+from Backend.core.guardrails import validate_and_sanitize_input
 from Backend.rag.generation import ResolutionGenerator
 from Backend.rag.reranking import CrossEncoderReranker
 from Backend.rag.retrieval import HybridRetriever
@@ -253,7 +254,9 @@ class SupportAgentOrchestrator:
         Returns:
             Fully populated and resolved `AgentState`.
         """
-        clean_query = query.strip()
+        clean_raw = query.strip() if query else ""
+        is_valid, clean_query, guard_msg = validate_and_sanitize_input(query)
+
         sess_id = session_id or (
             initial_state.session_id if initial_state else f"sess_{uuid.uuid4().hex[:10]}"
         )
@@ -270,10 +273,28 @@ class SupportAgentOrchestrator:
         if not state.current_query:
             state.current_query = clean_query
 
-        output_raw = self.compiled_graph.invoke(state)
-        output_state = (
-            output_raw if isinstance(output_raw, AgentState) else AgentState.model_validate(output_raw)
-        )
+        # Short-circuit on invalid customer input or prompt injection attempt
+        if not is_valid:
+            state.final_response = guard_msg
+            if not clean_raw:
+                state.clarification_needed = True
+            state.messages.append({"role": "user", "content": clean_raw})
+            state.messages.append({"role": "assistant", "content": guard_msg})
+            return state
+
+        try:
+            output_raw = self.compiled_graph.invoke(state)
+            output_state = (
+                output_raw if isinstance(output_raw, AgentState) else AgentState.model_validate(output_raw)
+            )
+        except Exception as exc:
+            logger.error("Unexpected error during graph execution: %s", exc, exc_info=True)
+            output_state = state
+            output_state.final_response = (
+                "I apologize, but I encountered an unexpected system error while processing your request. "
+                "Your inquiry has been escalated to our human support team for immediate resolution."
+            )
+            output_state.is_escalated = True
 
         # Append turn to conversational message history
         output_state.messages.append({"role": "user", "content": clean_query})
@@ -304,7 +325,9 @@ class SupportAgentOrchestrator:
         Returns:
             Fully populated and resolved `AgentState`.
         """
-        clean_query = query.strip()
+        clean_raw = query.strip() if query else ""
+        is_valid, clean_query, guard_msg = validate_and_sanitize_input(query)
+
         sess_id = session_id or (
             initial_state.session_id if initial_state else f"sess_{uuid.uuid4().hex[:10]}"
         )
@@ -321,10 +344,28 @@ class SupportAgentOrchestrator:
         if not state.current_query:
             state.current_query = clean_query
 
-        output_raw = await self.compiled_graph.ainvoke(state)
-        output_state = (
-            output_raw if isinstance(output_raw, AgentState) else AgentState.model_validate(output_raw)
-        )
+        # Short-circuit on invalid customer input or prompt injection attempt
+        if not is_valid:
+            state.final_response = guard_msg
+            if not clean_raw:
+                state.clarification_needed = True
+            state.messages.append({"role": "user", "content": clean_raw})
+            state.messages.append({"role": "assistant", "content": guard_msg})
+            return state
+
+        try:
+            output_raw = await self.compiled_graph.ainvoke(state)
+            output_state = (
+                output_raw if isinstance(output_raw, AgentState) else AgentState.model_validate(output_raw)
+            )
+        except Exception as exc:
+            logger.error("Unexpected error during async graph execution: %s", exc, exc_info=True)
+            output_state = state
+            output_state.final_response = (
+                "I apologize, but I encountered an unexpected system error while processing your request. "
+                "Your inquiry has been escalated to our human support team for immediate resolution."
+            )
+            output_state.is_escalated = True
 
         # Append turn to conversational message history
         output_state.messages.append({"role": "user", "content": clean_query})

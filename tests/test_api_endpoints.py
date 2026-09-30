@@ -255,3 +255,30 @@ class TestWebSocketChatEndpoint:
             data = json.loads(websocket.receive_text())
             assert data["event"] == "error"
             assert "cannot be empty" in data["message"].lower()
+
+
+# =============================================================================
+# 5. Visitor Counter Endpoint Tests
+# =============================================================================
+
+class TestVisitorEndpoint:
+    """Test suite for GET /api/visitors global persistent counter."""
+
+    def test_visitor_count_increments_and_persists(self, client, tmp_path):
+        test_file = tmp_path / "visitor_count.txt"
+        with patch("Backend.api.routes.VISITOR_FILE", test_file):
+            # First request
+            res1 = client.get("/api/visitors")
+            assert res1.status_code == 200
+            data1 = res1.json()
+            assert "total_visitors" in data1
+            assert data1["total_visitors"] == 1
+            assert test_file.read_text(encoding="utf-8") == "1"
+
+            # Second request increments
+            res2 = client.get("/api/visitors")
+            assert res2.status_code == 200
+            data2 = res2.json()
+            assert data2["total_visitors"] == 2
+            assert test_file.read_text(encoding="utf-8") == "2"
+

@@ -43,6 +43,12 @@ from google import genai
 from google.genai import types
 from pydantic import BaseModel, Field
 
+from Backend.core.guardrails import (
+    DETERMINISTIC_LLM_FALLBACK_MESSAGE,
+    GROUNDEDNESS_THRESHOLD,
+    RETRIEVAL_SIMILARITY_FLOOR,
+    llm_circuit_breaker,
+)
 from Backend.rag.reranking import RankedChunk
 
 # Load root .env if present
@@ -282,6 +288,7 @@ class ResolutionGenerator:
         model_name: str = DEFAULT_GENERATION_MODEL,
         evaluator: EvidenceEvaluator | None = None,
         prompt_assembler: GroundedPromptAssembler | None = None,
+        circuit_breaker: LLMCircuitBreaker | None = None,
     ) -> None:
         """Initialize the Resolution Generator.
 
@@ -290,11 +297,13 @@ class ResolutionGenerator:
             model_name: Generation LLM model name (default: 'gemini-1.5-flash').
             evaluator: Evidence sufficiency evaluator instance.
             prompt_assembler: Grounded prompt assembler instance.
+            circuit_breaker: Optional injected circuit breaker instance.
         """
         self._genai_client = genai_client
         self.model_name = model_name
         self.evaluator = evaluator or EvidenceEvaluator()
         self.prompt_assembler = prompt_assembler or GroundedPromptAssembler()
+        self.circuit_breaker = circuit_breaker
 
     @property
     def genai_client(self) -> genai.Client:
@@ -380,7 +389,18 @@ class ResolutionGenerator:
         # Step 3: Assemble Grounded Prompt
         prompt = self.prompt_assembler.assemble(clean_query, ranked_chunks)
 
-        # Step 4: Execute Generation via Google GenAI SDK
+        # Step 4: Circuit Breaker Pre-check
+        cb = self.circuit_breaker or llm_circuit_breaker
+        if not cb.is_available():
+            logger.warning("LLM Circuit Breaker is OPEN. Providing deterministic fallback.")
+            return GroundedResponse(
+                response_text=DETERMINISTIC_LLM_FALLBACK_MESSAGE,
+                citations=[],
+                is_escalated=True,
+                clarification_needed=False,
+            )
+
+        # Step 5: Execute Generation via Google GenAI SDK
         try:
             config = types.GenerateContentConfig(
                 temperature=0.0,
@@ -390,13 +410,21 @@ class ResolutionGenerator:
                 contents=prompt,
                 config=config,
             )
-            raw_text = response.text or ""
+            raw_text = getattr(response, "text", "") or ""
+            if not isinstance(raw_text, str):
+                raw_text = str(raw_text)
+            cb.record_success()
 
         except Exception as exc:
+            cb.record_failure()
             logger.error("GenAI resolution generation failed: %s", exc)
             fallback_text = (
-                "We encountered a temporary issue generating your response. "
-                "Your inquiry has been safely routed to a support agent."
+                DETERMINISTIC_LLM_FALLBACK_MESSAGE
+                if not cb.is_available()
+                else (
+                    "We encountered a temporary issue generating your response. "
+                    "Your inquiry has been safely routed to a support agent."
+                )
             )
             return GroundedResponse(
                 response_text=fallback_text,

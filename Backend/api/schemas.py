@@ -86,3 +86,9 @@ class HealthResponse(BaseModel):
     database: str = Field(default="reachable", description="PostgreSQL database reachability status")
     agent_orchestrator: str = Field(default="ready", description="LangGraph agent orchestrator status")
     version: str = Field(default="1.0.0", description="API version")
+
+
+class VisitorCountResponse(BaseModel):
+    """Global live visitor counter payload."""
+
+    total_visitors: int = Field(..., description="Cumulative count of platform visitors")

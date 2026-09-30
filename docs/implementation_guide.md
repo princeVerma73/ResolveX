@@ -2924,7 +2924,8 @@ The **Frontend Dashboard & Real-Time WebSocket Client** is an ultra-minimalist, 
 1. **Hybrid Client-Side Authentication**: Interactive Google OAuth mock, instant Guest Mode bypass (`guest@resolvex.com`), and standard enterprise email sign-in.
 2. **User-Partitioned Chat Isolation**: Workspaces, sessions, and telemetry are isolated strictly per user in `localStorage` under keyed dictionaries.
 3. **Real-Time RAG Confidence Scoring**: Dynamic percentage conversion (`Confidence: 94%`) derived from backend cross-encoder retrieval scores and rendered directly in response meta-pills.
-4. **Local Visitor Telemetry & Architecture Specifications**: Live visitor session tracking in the enterprise sidebar alongside an on-demand "Project Specs & Info" modal detailing FastAPI, LangGraph, and Qdrant performance targets.
+4. **Global Live Visitor Telemetry & Architecture Specifications**: Live visitor metrics backed by persistent server-side state (`GET /api/visitors` with file persistence) rather than purely client-side local isolation, alongside an on-demand "Project Specs & Info" modal detailing FastAPI, LangGraph, and Qdrant performance targets.
+5. **Right-Corner Theme Toggle (Dark / Light Mode)**: Seamless one-click switching between minimalist dark slate and crisp enterprise light mode, with instant flicker-free `localStorage` persistence and non-intrusive toast feedback.
 
 #### HOW (Data Flow & Implementation Mechanics)
 - **Hybrid Authentication Flow**:
@@ -2940,9 +2941,15 @@ The **Frontend Dashboard & Real-Time WebSocket Client** is an ultra-minimalist, 
   3. The client maps the raw score into a rounded percentage:
      $$\text{Confidence \%} = \text{Math.round}(s \times 100)$$
   4. It is mounted dynamically inside the response metadata row (`Confidence: 94%`) alongside Latency and Token count, giving users immediate insight into factual grounding.
-- **Visitor Telemetry & Project Info Flow**:
-  1. Visitor sessions are tracked via `sessionStorage` and `localStorage`, incrementing an initial counter (1,420+) and rendering a live pulsing indicator in the sidebar.
-  2. The sidebar features a "Project Specs & Info" button opening `#project-info-modal`, which outlines the end-to-end architecture, tech stack (FastAPI, LangGraph, Qdrant), and target performance SLAs.
+- **Global Persistent Visitor Telemetry & Project Info Flow**:
+  1. On page load, `script.js` dispatches an asynchronous `fetch('/api/visitors')` (with automatic protocol fallback to `http://localhost:8000/api/visitors` when opened via `file:///`).
+  2. The FastAPI backend endpoint (`Backend/api/routes.py`) manages an atomic `asyncio.Lock()` to prevent race conditions during concurrent hits. It reads the cumulative integer from `data/visitor_count.txt`, increments the count by `+1`, persists the updated value back to disk, and responds with `{"total_visitors": count}`.
+  3. The client updates the left sidebar badge (`Total Visitors: <count>`), ensuring that across real deployments, page reloads, and multi-device access, the counter reflects true global platform usage rather than client-isolated session counts.
+  4. The sidebar features a "Project Specs & Info" button opening `#project-info-modal`, which outlines the end-to-end architecture, tech stack (FastAPI, LangGraph, Qdrant), and target performance SLAs.
+- **Dark / Light Theme Toggle Flow**:
+  1. Prior to DOM rendering, an inline `<head>` script synchronously inspects `localStorage.getItem('theme')` to set `html.light` or `html.dark`, preventing any flash of unstyled theme.
+  2. Clicking `#btn-toggle-theme` in the top right corner toggles the root `.light` class, flips the Sun and Moon SVG icons, updates `localStorage`, and triggers a subtle floating toast notification confirming the active mode.
+  3. All UI tokens (sidebar `#ffffff` vs `#171717`, chat canvas `#f8fafc` vs `#212121`, input borders, and modal cards) adjust cleanly without requiring page reloads or bundle recompilation.
 
 ---
 
@@ -2952,19 +2959,22 @@ The **Frontend Dashboard & Real-Time WebSocket Client** is an ultra-minimalist, 
 | :--- | :--- | :--- | :--- |
 | **Frontend Runtime** | **Vanilla JavaScript (ES6+)** | Next.js / React / Vue | **Zero Build-Step & Raw WebSocket Speed**: Avoids node_modules, Webpack/Vite bundlers, and hydration overhead. Allows immediate execution by opening `index.html` directly in any browser (`file:///`) or serving from static edge storage (S3/CloudFront). Bypasses React's virtual DOM reconciliation loop for instantaneous token-by-token text streaming. |
 | **Styling** | **Tailwind CSS (via CDN)** | Tailwind CLI / Sass / CSS Modules | **Zero-Dependency Styling**: Eliminates PostCSS build steps while retaining utility-first flexibility, dark mode support, responsive breakpoints, and modern aesthetic consistency. |
-| **Persistence & Auth** | **Browser `localStorage` API** | PostgreSQL / MongoDB / Supabase Auth | **Zero Backend Load & Instant State**: For the MVP client layer, local storage eliminates backend session lookup latency, avoids authentication server overhead, and provides instant zero-network state restoration. Multi-tenant privacy is achieved by partitioning data under user email keys. |
+| **Persistence & Auth** | **Browser `localStorage` + Persistent Backend State** | PostgreSQL / MongoDB / Supabase Auth | **Hybrid Client Privacy & Global Server Metrics**: For conversational privacy, `localStorage` eliminates backend session lookup latency and provides instant zero-network state restoration per email key. For platform telemetry, `GET /api/visitors` backed by `data/visitor_count.txt` provides authoritative global aggregation across all sessions and server restarts. |
 | **Backend API** | **FastAPI (ASGI)** | Flask / Express.js / Django | **Asynchronous Concurrency**: Native async event loops for high-throughput WebSocket streaming and REST endpoints. |
 | **Orchestration** | **LangGraph StateGraph** | Linear Chains / AutoGen | **Cyclic Multi-Agent Execution**: Deterministic intent routing, state preservation across turns, and sub-agent modularity. |
 | **Vector Search** | **Qdrant / Supabase pgvector** | ChromaDB / Pinecone | **Hybrid Search & Filtering**: Fast HNSW indexing with lexical BM25 fusion and metadata filtering. |
 
 #### WHY THIS STACK & TRADE-OFFS (Interview Justifications):
-1. **Why Mock Google OAuth + Guest Mode over full production OAuth (Firebase/Auth0) for MVP?**
+1. **Why Persistent Backend State for Visitor Telemetry vs Pure Client-Side Local Isolation?**
+   - *True Multi-Tenant Aggregation*: Client-side local storage is strictly partitioned per browser and isolated per user email. A visitor counter isolated to local storage would only count that single browser's visits. Implementing `GET /api/visitors` backed by `data/visitor_count.txt` with an `asyncio.Lock()` provides authoritative, platform-wide metrics visible to all concurrent visitors.
+   - *Persistence Across Restarts*: Disk-backed persistence ensures deployment cycles or Uvicorn worker reloads do not wipe telemetry, without requiring heavy SQL migrations for a lightweight platform metric.
+2. **Why Mock Google OAuth + Guest Mode over full production OAuth (Firebase/Auth0) for MVP?**
    - *Eliminates External Dependency Overhead*: Bypasses heavy external SDKs (Firebase client, Auth0 React SDK), client ID configuration, callback domain whitelisting, and secret management.
    - *Demonstrates Real-World Identity Patterns*: Models enterprise user isolation, session scoping, and multi-tenant UI switching without cloud infrastructure prerequisites for reviewers.
-2. **Why Confidence Scores over static AI text?**
+3. **Why Confidence Scores over static AI text?**
    - *Measurable Factual Verifiability*: Exposes raw retrieval and cross-encoder relevance scores directly to the user interface. This is critical in enterprise customer support to mitigate LLM hallucinations and build customer trust.
    - *Auditability*: Allows support supervisors to immediately see which responses had high semantic grounding versus those requiring human review.
-3. **Why Client-Side LocalStorage for Chat Isolation?**
+4. **Why Client-Side LocalStorage for Chat Isolation?**
    - *Strict Zero-Leak Isolation*: Keying chat history by email (`chat_history[email]`) guarantees clean multi-user isolation on shared test machines without complex JWT verification or session cookie infrastructure.
    - *Zero Backend Load*: Offloads conversational state caching and temporary session lists to client memory, reducing read IOPS on the primary Supabase PostgreSQL instance.
 
@@ -2977,18 +2987,22 @@ The **Frontend Dashboard & Real-Time WebSocket Client** is an ultra-minimalist, 
    - Standard work email input with client-side validation.
    - "Continue as Guest" link provisioning `guest@resolvex.com` instantly.
 2. **Left Sidebar (`#sidebar`)**:
-   - Clean dark palette (`bg-[#171717]`, `border-r border-[#262626]`).
-   - App branding with indigo spark icon and "New chat" action pill (`⌘N`).
+   - Clean dark palette (`bg-[#171717]`, `border-r border-zinc-800`).
+   - App branding with monochrome mark and "New chat" action pill (`⌘N`).
    - Dynamic, isolated "Recent Chats" list with active session indicator, hover styles, and individual delete buttons.
    - Project Specs & Info trigger button (`#btn-open-project-info`).
-   - Live Mock Visitor counter (`Total Visitors: 1,420`).
-   - User profile section with email, user initials avatar, and a sign-out/switch user button.
-   - Live WebSocket connection pill with animated radar indicator (`Live Agent Connected`).
-3. **Minimalist Top Header**:
+   - Global Live Visitor Counter badge (`Total Visitors: <count>`) with live pulsing radar indicator and server-backed persistence.
+   - User profile section with email, user initials avatar, and a sign-out button.
+   - Live WebSocket connection pill with animated radar indicator (`Live Agent Connected`, `Connecting...`, `Disconnected`).
+3. **Asynchronous Toast Notification System & Resilient Disconnects (`#toast-container`)**:
+   - **Zero Blocking Dialogs**: Replaces all synchronous browser dialogs (`window.alert()`, `confirm()`) with non-intrusive, floating toast notifications in the bottom right corner.
+   - **Resilient Offline Handling**: Dispatches to disconnected sockets immediately render a dark-slate warning toast (*"Backend server offline. Reconnecting to ws://localhost:8000..."*) and trigger automatic socket reconnect with backoff.
+4. **Minimalist Top Header**:
    - Gemini-style `ResolveX Multi-Agent • LangGraph` model selector pill.
    - Real-time `Telemetry` button opening the system performance modal.
+   - **Right-Corner Theme Switcher (`#btn-toggle-theme`)**: Sleek toggle button transitioning between Dark Slate and Enterprise Light modes with Sun/Moon dynamic icons.
    - Canvas `Clear` button.
-4. **Direct Canvas Message Streaming**:
+5. **Direct Canvas Message Streaming**:
    - User queries formatted in right-aligned subtle pills (`bg-[#2f2f2f]`).
    - Assistant responses rendered directly onto the clean `#212121` canvas with a subtle spark icon.
    - Non-blocking typing cursor (`.streaming-cursor`).
@@ -2998,8 +3012,8 @@ The **Frontend Dashboard & Real-Time WebSocket Client** is an ultra-minimalist, 
      * Dynamic Confidence score badge (`Confidence: 94%`)
      * Grounded source citation chips (`[chk_ship_01]`)
      * Telemetry quick-trigger pill (`⚡ <latency>ms • <tokens>t`)
-5. **System Telemetry & Project Info Modals**:
-   - **Telemetry Modal (`#telemetry-modal`)**: Displays Round-Trip Latency (ms), Token Usage, and Confidence Score.
+6. **System Telemetry & Project Info Modals**:
+   - **Telemetry Modal (`#telemetry-modal`)**: Displays Round-Trip Latency (ms), Token Usage, and Confidence Score, defaulting to clean em-dash (`—`) placeholders until turn completion.
    - **Project Info Modal (`#project-info-modal`)**: Outlines Core Tech Stack (FastAPI, LangGraph, Qdrant, FlashRank) and Target Benchmarks (Avg Latency < 500ms, RAG Accuracy 95%, TTFT < 150ms).
 
 ---
@@ -3034,13 +3048,33 @@ The **Frontend Dashboard & Real-Time WebSocket Client** is an ultra-minimalist, 
 
 #### Full Test Suite Status:
 ```text
-===================== 206 passed, 4 warnings in 23.49s =====================
+===================== 225 passed, 4 warnings in 11.04s =====================
 ```
 
 **Step 8 — Frontend Dashboard, Hybrid Client Auth & Real-Time Telemetry is 100% complete, fully tested, and interview-ready.**
 
+---
 
+## Step 9: Enterprise Fault Tolerance, Guardrails & Error Handling (Sections 14 & 15)
 
+### 1. Executive Summary & Design Principles
+ResolveX implements zero-crash resilience across all operational boundaries. Non-deterministic generative AI and transactional database mutations are wrapped with defensive layers, schema validations, and circuit breakers.
 
+### 2. The 9 Assignment Error Handlers & Guardrails
 
+| # | Error Condition / Guardrail | Architectural Component | Implementation Details & Fallback Behavior |
+|---|-----------------------------|-------------------------|---------------------------------------------|
+| **1** | **Invalid Customer Input** | [guardrails.py](file:///c:/INTERNSHIP/ResolveX/Backend/core/guardrails.py), [graph.py](file:///c:/INTERNSHIP/ResolveX/Backend/agent/graph.py) | Input sanitization intercepts empty strings, pure whitespace, and null bytes before graph invocation. Truncates inputs > 2000 chars to prevent DoS. |
+| **2** | **Invalid Order ID** | [nodes.py](file:///c:/INTERNSHIP/ResolveX/Backend/agent/nodes.py) (`db_lookup_node`, `action_engine_node`) | Intercepts `ResourceNotFoundError` and `DatabaseOperationError`, returning friendly user fallback: *"I could not find an order with ID '{id}'. Please verify your order number and try again."* (No tool exceptions leaked). |
+| **3** | **Missing Information** | [nodes.py](file:///c:/INTERNSHIP/ResolveX/Backend/agent/nodes.py) (`db_lookup_node`, `action_engine_node`) | Detects missing slots (`order_id`, `ticket_id`, `email`) and sets `clarification_needed=True`, prompting user specifically for missing fields (e.g., *"To look up your information, please provide your order ID (e.g. ORD-1234)..."*). |
+| **4** | **Tool Failure** | [nodes.py](file:///c:/INTERNSHIP/ResolveX/Backend/agent/nodes.py), [graph.py](file:///c:/INTERNSHIP/ResolveX/Backend/agent/graph.py) | All node handlers wrap database queries, APIs, and external tools in `try/except Exception` blocks, returning polite customer-facing messages and logging detailed diagnostic traces. |
+| **5** | **LLM / API Failure** | [guardrails.py](file:///c:/INTERNSHIP/ResolveX/Backend/core/guardrails.py), [generation.py](file:///c:/INTERNSHIP/ResolveX/Backend/rag/generation.py), [router.py](file:///c:/INTERNSHIP/ResolveX/Backend/agent/router.py) | `LLMCircuitBreaker` tracks consecutive API dropouts or rate-limit (429) errors. If threshold (3) is exceeded, trips to `OPEN` state and provides `DETERMINISTIC_LLM_FALLBACK_MESSAGE` offering manual self-service alternatives. Auto-recovers after 30s (`HALF_OPEN`). |
+| **6** | **Retrieval Failure (Empty KB)** | [nodes.py](file:///c:/INTERNSHIP/ResolveX/Backend/agent/nodes.py) (`policy_rag_node`), [generation.py](file:///c:/INTERNSHIP/ResolveX/Backend/rag/generation.py) | When vector search returns no matches or below `RETRIEVAL_SIMILARITY_FLOOR = 0.65`, execution safely branches to supervisor fallback (`is_escalated=True`) with an empathetic human-transfer message instead of hallucinating. |
+| **7** | **Invalid Tool Parameters** | [nodes.py](file:///c:/INTERNSHIP/ResolveX/Backend/agent/nodes.py) (`action_engine_node`) | Catches Pydantic `ValidationError` upon invalid state transition payloads and asks the user for verified, valid parameters. |
+| **8** | **Ticket Creation Failure** | [nodes.py](file:///c:/INTERNSHIP/ResolveX/Backend/agent/nodes.py) (`escalation_node`) | If Postgres ticket persistence fails during human handoff, generates an offline temporary reference ID (`TCK-TEMP-{hex}`) and notifies the user gracefully so support continuity is preserved. |
+| **9** | **Guardrails: Groundedness & Injection Rejection** | [guardrails.py](file:///c:/INTERNSHIP/ResolveX/Backend/core/guardrails.py), [generation.py](file:///c:/INTERNSHIP/ResolveX/Backend/rag/generation.py) | • **Groundedness Check**: `GROUNDEDNESS_THRESHOLD = 0.70` ensures evidence below 70% confidence is discarded.<br>• **Prompt Injection Rejection**: Regex patterns intercept system prompt override, developer persona extraction (DAN), and safety bypass attempts with an immutable security response. |
 
+### 3. Verification Suite
+All error handlers and guardrails are verified by dedicated test suites:
+- [test_guardrails_error_handling.py](file:///c:/INTERNSHIP/ResolveX/tests/test_guardrails_error_handling.py): 18 comprehensive tests covering all 9 edge cases and guardrail scenarios.
+- Complete regression suite: **225 passed tests** with 0 failures across 17 test modules.

@@ -33,6 +33,19 @@
       }
     }
   </script>
+  <script>
+    /* Immediate theme initialization to prevent flash */
+    (function() {
+      const savedTheme = localStorage.getItem('theme');
+      if (savedTheme === 'light') {
+        document.documentElement.classList.add('light');
+        document.documentElement.classList.remove('dark');
+      } else {
+        document.documentElement.classList.add('dark');
+        document.documentElement.classList.remove('light');
+      }
+    })();
+  </script>
   <style>
     /* Sleek minimal scrollbars */
     ::-webkit-scrollbar {
@@ -61,6 +74,157 @@
       0%, 100% { opacity: 1; }
       50% { opacity: 0; }
     }
+
+    /* ========================================================================= */
+    /* Muted Slate Gray / "Little Gray Dark" Design System                      */
+    /* (Replaces pure blinding white with comfortable, rich slate-gray tones)   */
+    /* ========================================================================= */
+    html.light {
+      background-color: #cfd4dc !important;
+      color: #0f172a !important;
+    }
+    html.light body {
+      background-color: #cfd4dc !important;
+      color: #0f172a !important;
+    }
+    html.light aside {
+      background-color: #c2c8d2 !important;
+      border-color: #aeb6c4 !important;
+    }
+    html.light .bg-\[\#212121\] {
+      background-color: #cfd4dc !important;
+    }
+    html.light .bg-\[\#171717\] {
+      background-color: #c2c8d2 !important;
+    }
+    html.light .bg-\[\#1c1c1c\] {
+      background-color: #c2c8d2 !important;
+    }
+    html.light .bg-\[\#262626\] {
+      background-color: #dbe0e7 !important;
+    }
+    html.light .bg-\[\#262626\]\/70 {
+      background-color: #dbe0e7 !important;
+    }
+    html.light .bg-\[\#2f2f2f\] {
+      background-color: #dbe0e7 !important;
+    }
+    html.light .bg-zinc-800,
+    html.light .bg-zinc-800\/80,
+    html.light .bg-zinc-850 {
+      background-color: #dbe0e7 !important;
+    }
+    html.light .bg-zinc-900 {
+      background-color: #c2c8d2 !important;
+    }
+    html.light .border-zinc-800,
+    html.light .border-zinc-700,
+    html.light .border-\[\#424242\],
+    html.light .border-zinc-750 {
+      border-color: #aeb6c4 !important;
+    }
+    html.light .text-zinc-100,
+    html.light .text-zinc-200 {
+      color: #0f172a !important;
+    }
+    html.light .text-zinc-300 {
+      color: #1e293b !important;
+    }
+    html.light .text-zinc-400 {
+      color: #334155 !important;
+    }
+    html.light .text-zinc-500 {
+      color: #475569 !important;
+    }
+    html.light header {
+      background-color: rgba(207, 212, 220, 0.95) !important;
+      border-color: #aeb6c4 !important;
+    }
+    html.light footer {
+      background: linear-gradient(to top, #cfd4dc, #cfd4dc, transparent) !important;
+    }
+    html.light textarea#chat-input {
+      color: #0f172a !important;
+    }
+    html.light textarea#chat-input::placeholder {
+      color: #64748b !important;
+    }
+    html.light #btn-send {
+      background-color: #0f172a !important;
+      color: #ffffff !important;
+    }
+    html.light #btn-send:hover {
+      background-color: #1e293b !important;
+    }
+    html.light .quick-pill {
+      background-color: #dbe0e7 !important;
+      border-color: #aeb6c4 !important;
+      box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.08);
+    }
+    html.light .quick-pill:hover {
+      background-color: #e5e9f0 !important;
+      border-color: #94a3b8 !important;
+    }
+    html.light #auth-modal > div,
+    html.light #telemetry-modal > div,
+    html.light #project-info-modal > div {
+      background-color: #dbe0e7 !important;
+      border-color: #aeb6c4 !important;
+      color: #0f172a !important;
+      box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.2) !important;
+    }
+    html.light #auth-modal > div input {
+      background-color: #cfd4dc !important;
+      border-color: #94a3b8 !important;
+      color: #0f172a !important;
+    }
+    html.light .hover\:bg-zinc-800:hover,
+    html.light .hover\:bg-zinc-750:hover {
+      background-color: #dbe0e7 !important;
+    }
+    html.light #visitor-badge,
+    html.light #user-profile-section,
+    html.light #connection-badge {
+      background-color: #dbe0e7 !important;
+      border-color: #aeb6c4 !important;
+    }
+    html.light #user-avatar {
+      background-color: #c2c8d2 !important;
+      border-color: #94a3b8 !important;
+      color: #1e293b !important;
+    }
+    html.light #btn-new-chat {
+      background-color: #0f172a !important;
+      color: #ffffff !important;
+      border: 1px solid #0f172a !important;
+    }
+    html.light #btn-new-chat:hover {
+      background-color: #1e293b !important;
+    }
+    html.light #btn-new-chat span {
+      color: #ffffff !important;
+    }
+    html.light #session-history-list > div {
+      border-color: #aeb6c4 !important;
+    }
+    html.light #session-history-list > div.bg-\[\#262626\] {
+      background-color: #b8c0cc !important;
+      color: #0f172a !important;
+    }
+    html.light #session-history-list > div.bg-\[\#262626\] span {
+      color: #0f172a !important;
+    }
+    html.light .flex.justify-end > div {
+      background-color: #dbe0e7 !important;
+      border: 1px solid #aeb6c4 !important;
+      color: #0f172a !important;
+    }
+    html.light ::-webkit-scrollbar-thumb {
+      background: rgba(0, 0, 0, 0.2);
+    }
+    html.light ::-webkit-scrollbar-thumb:hover {
+      background: rgba(0, 0, 0, 0.35);
+    }
   </style>
 </head>
 <body class="h-full flex overflow-hidden font-sans selection:bg-zinc-700 selection:text-white">
@@ -69,13 +233,13 @@
   <div id="mobile-backdrop" class="fixed inset-0 bg-black/60 z-40 hidden md:hidden transition-opacity"></div>
 
   <!-- ---------------------------------------------------------------------- -->
-  <!-- Auth Modal: Email Login, Google Mock & Guest Mode                       -->
+  <!-- Auth Modal: Email Login, Google Mock & Guest Mode (Enterprise Slate)   -->
   <!-- ---------------------------------------------------------------------- -->
   <div id="auth-modal" class="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 transition-all">
-    <div class="bg-[#1c1c1c] border border-[#333] rounded-2xl p-6 sm:p-8 max-w-md w-full shadow-2xl">
+    <div class="bg-[#1c1c1c] border border-zinc-800 rounded-2xl p-6 sm:p-8 max-w-md w-full shadow-2xl">
       <div class="flex items-center gap-3 mb-4">
-        <div class="h-10 w-10 rounded-xl bg-gradient-to-tr from-indigo-500 to-violet-500 flex items-center justify-center text-white shadow-md shadow-indigo-500/20">
-          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <div class="h-10 w-10 rounded-xl bg-zinc-800 border border-zinc-700 flex items-center justify-center text-zinc-100 shadow-sm">
+          <svg class="w-5 h-5 text-zinc-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.2" d="M13 10V3L4 14h7v7l9-11h-7z"/>
           </svg>
         </div>
@@ -89,11 +253,11 @@
         Access your isolated workspace and persistent chat history. No server secrets needed—fully partitioned client-side.
       </p>
 
-      <!-- Styled Google OAuth Sign-in Button (Interactive Mock) -->
+      <!-- Clean Neutral Google OAuth Sign-in Button -->
       <button
         type="button"
         id="btn-google-login"
-        class="w-full bg-[#262626] hover:bg-[#2e2e2e] border border-[#3a3a3a] text-zinc-200 font-medium py-2.5 rounded-xl text-sm transition flex items-center justify-center gap-2.5 shadow-sm group"
+        class="w-full bg-[#262626] hover:bg-[#2e2e2e] border border-zinc-700 text-zinc-200 font-medium py-2.5 rounded-xl text-sm transition flex items-center justify-center gap-2.5 shadow-sm group"
       >
         <svg class="w-4 h-4" viewBox="0 0 24 24">
           <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
@@ -106,9 +270,9 @@
 
       <!-- Minimal Divider -->
       <div class="flex items-center gap-3 my-4">
-        <div class="h-px flex-1 bg-[#2e2e2e]"></div>
+        <div class="h-px flex-1 bg-zinc-800"></div>
         <span class="text-[11px] text-zinc-500 uppercase tracking-wider">or email</span>
-        <div class="h-px flex-1 bg-[#2e2e2e]"></div>
+        <div class="h-px flex-1 bg-zinc-800"></div>
       </div>
 
       <!-- Work Email Form -->
@@ -121,14 +285,15 @@
             placeholder="agent@company.com"
             required
             autocomplete="email"
-            class="w-full bg-[#262626] border border-[#3a3a3a] rounded-xl px-3.5 py-2.5 text-sm text-zinc-100 placeholder-zinc-500 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition"
+            class="w-full bg-[#262626] border border-zinc-700 rounded-xl px-3.5 py-2.5 text-sm text-zinc-100 placeholder-zinc-500 focus:outline-none focus:border-zinc-400 focus:ring-1 focus:ring-zinc-400 transition"
           />
         </div>
 
+        <!-- Solid Clean Enterprise White/Zinc Primary Button -->
         <button
           type="submit"
           id="btn-auth-submit"
-          class="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-medium py-2.5 rounded-xl text-sm transition shadow-md shadow-indigo-600/30 flex items-center justify-center gap-2"
+          class="w-full bg-zinc-100 hover:bg-zinc-200 text-zinc-900 font-medium py-2.5 rounded-xl text-sm transition shadow-sm flex items-center justify-center gap-2"
         >
           <span>Continue with Email</span>
           <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -137,19 +302,19 @@
         </button>
       </form>
 
-      <!-- Continue as Guest Link -->
+      <!-- Continue as Guest Link (Clean Neutral) -->
       <div class="text-center pt-3 mt-1">
         <button
           type="button"
           id="btn-guest-login"
-          class="text-xs text-indigo-400 hover:text-indigo-300 font-medium hover:underline underline-offset-4 transition inline-flex items-center gap-1.5"
+          class="text-xs text-zinc-400 hover:text-zinc-200 font-medium hover:underline underline-offset-4 transition inline-flex items-center gap-1.5"
         >
           <span>Continue as Guest</span>
           <span class="text-[10px] text-zinc-500 font-mono">(guest@resolvex.com)</span>
         </button>
       </div>
 
-      <div class="mt-4 pt-3.5 border-t border-[#2b2b2b] text-center text-[11px] text-zinc-500">
+      <div class="mt-4 pt-3.5 border-t border-zinc-800 text-center text-[11px] text-zinc-500">
         🔒 LocalStorage isolation active • Zero cross-user data leakage
       </div>
     </div>
@@ -159,18 +324,18 @@
   <!-- Telemetry Modal: Real Round-Trip Metrics, Tokens & Groundedness         -->
   <!-- ---------------------------------------------------------------------- -->
   <div id="telemetry-modal" class="fixed inset-0 bg-black/75 backdrop-blur-xs z-50 hidden flex items-center justify-center p-4">
-    <div class="bg-[#1c1c1c] border border-[#383838] rounded-2xl p-6 max-w-lg w-full shadow-2xl">
+    <div class="bg-[#1c1c1c] border border-zinc-800 rounded-2xl p-6 max-w-lg w-full shadow-2xl">
       <!-- Modal Header -->
-      <div class="flex items-center justify-between pb-4 border-b border-[#2b2b2b]">
+      <div class="flex items-center justify-between pb-4 border-b border-zinc-800">
         <div class="flex items-center gap-2">
-          <div class="h-6 w-6 rounded-lg bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 flex items-center justify-center">
+          <div class="h-6 w-6 rounded-lg bg-zinc-800 border border-zinc-700 text-zinc-300 flex items-center justify-center">
             <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/>
             </svg>
           </div>
           <h3 class="text-sm font-semibold text-zinc-100">Real-Time Telemetry & Performance</h3>
         </div>
-        <button id="btn-close-telemetry" class="text-zinc-400 hover:text-zinc-200 p-1 rounded-md hover:bg-[#262626] transition">
+        <button id="btn-close-telemetry" class="text-zinc-400 hover:text-zinc-200 p-1 rounded-md hover:bg-zinc-800 transition">
           <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
           </svg>
@@ -180,58 +345,58 @@
       <!-- Core Metrics 3-Card Grid -->
       <div class="grid grid-cols-3 gap-3 my-5">
         <!-- Metric 1: Latency -->
-        <div class="bg-[#242424] border border-[#333] rounded-xl p-3 flex flex-col justify-between">
+        <div class="bg-[#242424] border border-zinc-800 rounded-xl p-3 flex flex-col justify-between">
           <span class="text-[11px] font-medium text-zinc-400 uppercase tracking-wider">Latency</span>
           <div class="my-2">
-            <span id="telemetry-latency" class="text-2xl font-bold text-emerald-400">0</span>
-            <span class="text-xs text-zinc-500">ms</span>
+            <span id="telemetry-latency" class="text-2xl font-bold text-zinc-100">—</span>
+            <span class="text-xs text-zinc-400">ms</span>
           </div>
           <span class="text-[10px] text-zinc-500">Client Date.now() diff</span>
         </div>
 
         <!-- Metric 2: Token Usage -->
-        <div class="bg-[#242424] border border-[#333] rounded-xl p-3 flex flex-col justify-between">
+        <div class="bg-[#242424] border border-zinc-800 rounded-xl p-3 flex flex-col justify-between">
           <span class="text-[11px] font-medium text-zinc-400 uppercase tracking-wider">Tokens</span>
           <div class="my-2">
-            <span id="telemetry-tokens" class="text-2xl font-bold text-indigo-400">0</span>
-            <span class="text-xs text-zinc-500">total</span>
+            <span id="telemetry-tokens" class="text-2xl font-bold text-zinc-100">—</span>
+            <span class="text-xs text-zinc-400">total</span>
           </div>
           <span class="text-[10px] text-zinc-500">Dynamic model tokens</span>
         </div>
 
         <!-- Metric 3: Groundedness -->
-        <div class="bg-[#242424] border border-[#333] rounded-xl p-3 flex flex-col justify-between">
+        <div class="bg-[#242424] border border-zinc-800 rounded-xl p-3 flex flex-col justify-between">
           <span class="text-[11px] font-medium text-zinc-400 uppercase tracking-wider">Confidence</span>
           <div class="my-2">
-            <span id="telemetry-rag-score" class="text-2xl font-bold text-cyan-400">94%</span>
-            <span id="telemetry-raw-score" class="text-[11px] text-zinc-500 block font-mono">0.94 / 1.0</span>
+            <span id="telemetry-rag-score" class="text-2xl font-bold text-zinc-100">—</span>
+            <span id="telemetry-raw-score" class="text-[11px] text-zinc-500 block font-mono">—</span>
           </div>
           <span class="text-[10px] text-zinc-500">Cross-encoder RAG score</span>
         </div>
       </div>
 
       <!-- Additional Technical Details -->
-      <div class="bg-[#212121] border border-[#2b2b2b] rounded-xl p-3.5 space-y-2 text-xs">
+      <div class="bg-[#212121] border border-zinc-800 rounded-xl p-3.5 space-y-2 text-xs">
         <div class="flex items-center justify-between">
-          <span class="text-zinc-500">Active Session:</span>
-          <span id="telemetry-session" class="font-mono text-zinc-300 text-[11px]">SES-...</span>
+          <span class="text-zinc-400">Active Session:</span>
+          <span id="telemetry-session" class="font-mono text-zinc-300 text-[11px]">—</span>
         </div>
         <div class="flex items-center justify-between">
-          <span class="text-zinc-500">Classified Intent:</span>
-          <span id="telemetry-intent" class="font-mono text-indigo-400 text-[11px]">POLICY_INQUIRY</span>
+          <span class="text-zinc-400">Classified Intent:</span>
+          <span id="telemetry-intent" class="font-mono text-zinc-200 text-[11px]">—</span>
         </div>
         <div class="flex items-center justify-between">
-          <span class="text-zinc-500">Grounded Citations:</span>
-          <span id="telemetry-citations" class="font-mono text-zinc-300 text-[11px]">0 sources</span>
+          <span class="text-zinc-400">Grounded Citations:</span>
+          <span id="telemetry-citations" class="font-mono text-zinc-300 text-[11px]">—</span>
         </div>
         <div class="flex items-center justify-between">
-          <span class="text-zinc-500">Recorded At:</span>
-          <span id="telemetry-time" class="text-zinc-400 text-[11px]">--:--:--</span>
+          <span class="text-zinc-400">Recorded At:</span>
+          <span id="telemetry-time" class="text-zinc-400 text-[11px]">—</span>
         </div>
       </div>
 
       <div class="mt-4 flex justify-end">
-        <button id="btn-telemetry-ok" class="px-4 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-xs font-medium text-zinc-200 transition">
+        <button id="btn-telemetry-ok" class="px-4 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-xs font-medium text-zinc-200 transition border border-zinc-700">
           Close
         </button>
       </div>
@@ -242,17 +407,17 @@
   <!-- Project Info Modal: Architecture, Tech Stack & SLAs                    -->
   <!-- ---------------------------------------------------------------------- -->
   <div id="project-info-modal" class="fixed inset-0 bg-black/75 backdrop-blur-xs z-50 hidden flex items-center justify-center p-4">
-    <div class="bg-[#1c1c1c] border border-[#383838] rounded-2xl p-6 max-w-lg w-full shadow-2xl">
-      <div class="flex items-center justify-between pb-3 border-b border-[#2b2b2b]">
+    <div class="bg-[#1c1c1c] border border-zinc-800 rounded-2xl p-6 max-w-lg w-full shadow-2xl">
+      <div class="flex items-center justify-between pb-3 border-b border-zinc-800">
         <div class="flex items-center gap-2">
-          <div class="h-6 w-6 rounded-lg bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 flex items-center justify-center">
+          <div class="h-6 w-6 rounded-lg bg-zinc-800 border border-zinc-700 text-zinc-300 flex items-center justify-center">
             <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
             </svg>
           </div>
           <h3 class="text-sm font-semibold text-zinc-100">ResolveX System Specifications & Benchmarks</h3>
         </div>
-        <button id="btn-close-project-info" class="text-zinc-400 hover:text-zinc-200 p-1 rounded-md hover:bg-[#262626] transition">
+        <button id="btn-close-project-info" class="text-zinc-400 hover:text-zinc-200 p-1 rounded-md hover:bg-zinc-800 transition">
           <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
           </svg>
@@ -264,20 +429,20 @@
         <div>
           <span class="text-[11px] font-semibold text-zinc-400 uppercase tracking-wider block mb-2">Core Tech Stack</span>
           <div class="grid grid-cols-2 gap-2">
-            <div class="bg-[#242424] border border-[#333] rounded-lg p-2.5">
-              <span class="text-indigo-400 font-medium block">FastAPI</span>
+            <div class="bg-[#242424] border border-zinc-800 rounded-lg p-2.5">
+              <span class="text-zinc-200 font-medium block">FastAPI</span>
               <span class="text-[11px] text-zinc-400">Async REST & WebSocket Lifespans</span>
             </div>
-            <div class="bg-[#242424] border border-[#333] rounded-lg p-2.5">
-              <span class="text-purple-400 font-medium block">LangGraph</span>
+            <div class="bg-[#242424] border border-zinc-800 rounded-lg p-2.5">
+              <span class="text-zinc-200 font-medium block">LangGraph</span>
               <span class="text-[11px] text-zinc-400">Multi-Agent Supervisor & StateGraph</span>
             </div>
-            <div class="bg-[#242424] border border-[#333] rounded-lg p-2.5">
-              <span class="text-emerald-400 font-medium block">Qdrant & Supabase</span>
+            <div class="bg-[#242424] border border-zinc-800 rounded-lg p-2.5">
+              <span class="text-zinc-200 font-medium block">Qdrant & Supabase</span>
               <span class="text-[11px] text-zinc-400">Vector Search & RLS Relational Store</span>
             </div>
-            <div class="bg-[#242424] border border-[#333] rounded-lg p-2.5">
-              <span class="text-amber-400 font-medium block">FlashRank & RRF</span>
+            <div class="bg-[#242424] border border-zinc-800 rounded-lg p-2.5">
+              <span class="text-zinc-200 font-medium block">FlashRank & RRF</span>
               <span class="text-[11px] text-zinc-400">Cross-Encoder Hybrid Reranking</span>
             </div>
           </div>
@@ -286,29 +451,29 @@
         <!-- Target Benchmarks & Performance SLAs -->
         <div>
           <span class="text-[11px] font-semibold text-zinc-400 uppercase tracking-wider block mb-2">Production Benchmarks</span>
-          <div class="bg-[#242424] border border-[#333] rounded-xl p-3 space-y-2">
+          <div class="bg-[#242424] border border-zinc-800 rounded-xl p-3 space-y-2">
             <div class="flex items-center justify-between">
               <span class="text-zinc-400">Avg Round-Trip Latency:</span>
-              <span class="font-mono text-emerald-400 font-semibold">&lt; 500 ms</span>
+              <span class="font-mono text-zinc-200 font-semibold">&lt; 500 ms</span>
             </div>
             <div class="flex items-center justify-between">
               <span class="text-zinc-400">Grounded RAG Accuracy:</span>
-              <span class="font-mono text-cyan-400 font-semibold">95% Target</span>
+              <span class="font-mono text-zinc-200 font-semibold">95% Target</span>
             </div>
             <div class="flex items-center justify-between">
               <span class="text-zinc-400">Time to First Token (TTFT):</span>
-              <span class="font-mono text-indigo-400 font-semibold">&lt; 150 ms</span>
+              <span class="font-mono text-zinc-200 font-semibold">&lt; 150 ms</span>
             </div>
             <div class="flex items-center justify-between">
               <span class="text-zinc-400">Router Intent Classification:</span>
-              <span class="font-mono text-zinc-300 font-semibold">98% Accuracy</span>
+              <span class="font-mono text-zinc-200 font-semibold">98% Accuracy</span>
             </div>
           </div>
         </div>
       </div>
 
-      <div class="pt-3 border-t border-[#2b2b2b] flex justify-end">
-        <button id="btn-project-info-ok" class="px-4 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-xs font-medium text-zinc-200 transition">
+      <div class="pt-3 border-t border-zinc-800 flex justify-end">
+        <button id="btn-project-info-ok" class="px-4 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-xs font-medium text-zinc-200 transition border border-zinc-700">
           Close
         </button>
       </div>
@@ -318,21 +483,21 @@
   <!-- ---------------------------------------------------------------------- -->
   <!-- Left Sidebar (ChatGPT / Gemini style with User Profile & Isolation)    -->
   <!-- ---------------------------------------------------------------------- -->
-  <aside id="sidebar" class="fixed inset-y-0 left-0 z-40 w-64 bg-[#171717] border-r border-[#262626] flex flex-col justify-between p-3.5 transition-transform duration-300 ease-in-out -translate-x-full md:relative md:translate-x-0">
+  <aside id="sidebar" class="fixed inset-y-0 left-0 z-40 w-64 bg-[#171717] border-r border-zinc-800 flex flex-col justify-between p-3.5 transition-transform duration-300 ease-in-out -translate-x-full md:relative md:translate-x-0">
     <!-- Top Section: App Title & New Chat Button -->
     <div class="flex flex-col gap-3">
       <!-- Brand & Mobile Close -->
       <div class="flex items-center justify-between px-2 pt-1 pb-1">
         <div class="flex items-center gap-2">
-          <div class="h-7 w-7 rounded-lg bg-gradient-to-tr from-indigo-500 to-violet-400 flex items-center justify-center shadow-sm">
-            <svg class="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <div class="h-7 w-7 rounded-lg bg-zinc-800 border border-zinc-700 flex items-center justify-center shadow-sm">
+            <svg class="w-4 h-4 text-zinc-200" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.2" d="M13 10V3L4 14h7v7l9-11h-7z"/>
             </svg>
           </div>
-          <span class="font-semibold text-sm tracking-tight text-zinc-100">Resolve<span class="text-indigo-400">X</span></span>
-          <span class="text-[10px] font-medium text-zinc-500 bg-[#262626] px-1.5 py-0.5 rounded border border-[#333]">AI</span>
+          <span class="font-semibold text-sm tracking-tight text-zinc-100">Resolve<span class="text-zinc-400">X</span></span>
+          <span class="text-[10px] font-medium text-zinc-400 bg-zinc-800 px-1.5 py-0.5 rounded border border-zinc-700">AI</span>
         </div>
-        <button id="btn-close-sidebar" class="md:hidden text-zinc-400 hover:text-zinc-200 p-1 rounded-md hover:bg-[#262626]">
+        <button id="btn-close-sidebar" class="md:hidden text-zinc-400 hover:text-zinc-200 p-1 rounded-md hover:bg-zinc-800">
           <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
           </svg>
@@ -340,7 +505,7 @@
       </div>
 
       <!-- New Chat Action Pill -->
-      <button id="btn-new-chat" class="w-full flex items-center justify-between px-3 py-2 rounded-lg bg-[#212121] hover:bg-[#262626] text-zinc-200 text-xs font-medium border border-[#333] transition shadow-xs group">
+      <button id="btn-new-chat" class="w-full flex items-center justify-between px-3 py-2 rounded-lg bg-zinc-800/60 hover:bg-zinc-800 text-zinc-200 text-xs font-medium border border-zinc-700/60 transition shadow-xs group">
         <span class="flex items-center gap-2">
           <svg class="w-4 h-4 text-zinc-400 group-hover:text-zinc-200" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/>
@@ -353,7 +518,7 @@
       <!-- Recent Conversations Header -->
       <div class="px-2 pt-2 text-[11px] font-medium text-zinc-500 uppercase tracking-wider flex items-center justify-between">
         <span>Recent Chats</span>
-        <span id="user-chat-count" class="text-[10px] font-mono text-zinc-600">0</span>
+        <span id="user-chat-count" class="text-[10px] font-mono text-zinc-500">0</span>
       </div>
 
       <!-- Chat History List (Isolated per User) -->
@@ -363,11 +528,11 @@
     </div>
 
     <!-- Bottom Section: Project Specs, Visitor Counter, User Profile & System Status -->
-    <div class="border-t border-[#262626] pt-2.5 flex flex-col gap-2">
+    <div class="border-t border-zinc-800 pt-2.5 flex flex-col gap-2">
       <!-- Project Specs Button -->
-      <button id="btn-open-project-info" class="w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg bg-[#212121] hover:bg-[#262626] text-zinc-400 hover:text-zinc-200 text-xs border border-[#2b2b2b] transition">
+      <button id="btn-open-project-info" class="w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg bg-[#212121] hover:bg-zinc-800 text-zinc-400 hover:text-zinc-200 text-xs border border-zinc-800 transition">
         <span class="flex items-center gap-2">
-          <svg class="w-3.5 h-3.5 text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <svg class="w-3.5 h-3.5 text-zinc-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
           </svg>
           <span>Project Specs & Info</span>
@@ -375,27 +540,27 @@
         <span class="text-[10px] text-zinc-500 font-mono">v1.0</span>
       </button>
 
-      <!-- Live Mock Visitor Badge -->
-      <div id="visitor-badge" class="flex items-center justify-between px-2.5 py-1.5 rounded-lg bg-[#212121] border border-[#2b2b2b] text-xs text-zinc-300">
+      <!-- Global Live Visitor Counter -->
+      <div id="visitor-badge" class="flex items-center justify-between px-2.5 py-1.5 rounded-lg bg-[#212121] border border-zinc-800 text-xs text-zinc-300" title="Global Live Visitors">
         <div class="flex items-center gap-2">
           <span class="relative flex h-2 w-2">
-            <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-cyan-400 opacity-75"></span>
-            <span class="relative inline-flex rounded-full h-2 w-2 bg-cyan-500"></span>
+            <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+            <span class="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
           </span>
           <span class="text-[11px] text-zinc-400 font-medium">Total Visitors</span>
         </div>
-        <span id="visitor-count" class="font-mono text-cyan-300 text-[11px] font-semibold">1,420</span>
+        <span id="visitor-count" class="font-mono text-zinc-200 text-[11px] font-semibold">—</span>
       </div>
 
       <!-- Active User Profile Card with Logout/Switch -->
-      <div id="user-profile-section" class="flex items-center justify-between px-2.5 py-1.5 rounded-lg bg-[#212121] border border-[#2b2b2b] text-xs">
+      <div id="user-profile-section" class="flex items-center justify-between px-2.5 py-1.5 rounded-lg bg-[#212121] border border-zinc-800 text-xs">
         <div class="flex items-center gap-2 truncate">
-          <div id="user-avatar" class="h-6 w-6 rounded-full bg-indigo-600/30 border border-indigo-500/40 text-indigo-300 flex items-center justify-center font-bold text-[10px] shrink-0">
+          <div id="user-avatar" class="h-6 w-6 rounded-full bg-zinc-800 border border-zinc-700 text-zinc-300 flex items-center justify-center font-bold text-[10px] shrink-0">
             U
           </div>
           <span id="user-email-display" class="truncate text-[11px] text-zinc-300 font-medium">user@test.com</span>
         </div>
-        <button id="btn-logout" title="Sign out / Switch account" class="text-zinc-500 hover:text-rose-400 p-1 rounded hover:bg-[#2a2a2a] transition shrink-0">
+        <button id="btn-logout" title="Sign out / Switch account" class="text-zinc-500 hover:text-zinc-200 p-1 rounded hover:bg-zinc-800 transition shrink-0">
           <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/>
           </svg>
@@ -403,7 +568,7 @@
       </div>
 
       <!-- Live WebSocket Connection Pill -->
-      <div id="connection-status" class="flex items-center justify-between px-2.5 py-1.5 rounded-lg bg-[#212121] border border-[#2b2b2b] text-xs text-zinc-300">
+      <div id="connection-status" class="flex items-center justify-between px-2.5 py-1.5 rounded-lg bg-[#212121] border border-zinc-800 text-xs text-zinc-300">
         <div class="flex items-center gap-2">
           <span class="relative flex h-2 w-2">
             <span id="ping-indicator" class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
@@ -428,37 +593,49 @@
   <div class="flex-1 flex flex-col h-full bg-[#212121] relative overflow-hidden">
     
     <!-- Top Bar: Minimal header with session info, telemetry button & agent indicator -->
-    <header class="h-12 border-b border-[#262626]/60 flex items-center justify-between px-4 sticky top-0 bg-[#212121]/90 backdrop-blur-md z-10 shrink-0">
+    <header class="h-12 border-b border-zinc-800 flex items-center justify-between px-4 sticky top-0 bg-[#212121]/90 backdrop-blur-md z-10 shrink-0">
       <div class="flex items-center gap-2.5">
         <!-- Mobile Sidebar Toggle -->
-        <button id="btn-open-sidebar" class="md:hidden text-zinc-400 hover:text-zinc-200 p-1.5 rounded-md hover:bg-[#2a2a2a] transition">
+        <button id="btn-open-sidebar" class="md:hidden text-zinc-400 hover:text-zinc-200 p-1.5 rounded-md hover:bg-zinc-800 transition">
           <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/>
           </svg>
         </button>
 
         <!-- Model / Agent Selector Pill (Gemini/ChatGPT style) -->
-        <div class="flex items-center gap-1.5 px-2.5 py-1 rounded-lg hover:bg-[#2a2a2a] cursor-default transition">
+        <div class="flex items-center gap-1.5 px-2.5 py-1 rounded-lg hover:bg-zinc-800 cursor-default transition">
           <span class="text-xs font-medium text-zinc-200">ResolveX Multi-Agent</span>
-          <span class="text-[10px] px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-400 font-mono">LangGraph</span>
+          <span class="text-[10px] px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-400 font-mono border border-zinc-700">LangGraph</span>
           <svg class="w-3.5 h-3.5 text-zinc-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
           </svg>
         </div>
       </div>
 
-      <!-- Right Header Actions: Telemetry & Clear Canvas -->
+      <!-- Right Header Actions: Telemetry, Theme Toggle & Clear Canvas -->
       <div class="flex items-center gap-2">
         <!-- Telemetry Trigger Button -->
-        <button id="btn-open-telemetry" title="View Real-Time Telemetry & Performance" class="text-xs text-zinc-300 hover:text-white px-2.5 py-1 rounded-md bg-[#262626] hover:bg-[#2e2e2e] border border-[#383838] transition flex items-center gap-1.5 shadow-xs">
-          <svg class="w-3.5 h-3.5 text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <button id="btn-open-telemetry" title="View Real-Time Telemetry & Performance" class="text-xs text-zinc-300 hover:text-white px-2.5 py-1 rounded-md bg-zinc-800/80 hover:bg-zinc-800 border border-zinc-700 transition flex items-center gap-1.5 shadow-xs">
+          <svg class="w-3.5 h-3.5 text-zinc-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/>
           </svg>
           <span class="hidden sm:inline font-medium">Telemetry</span>
         </button>
 
+        <!-- Theme Toggle Button (Dark / Light) in Right Corner -->
+        <button id="btn-toggle-theme" title="Switch Theme (Dark / Light)" class="text-xs text-zinc-300 hover:text-white p-1.5 rounded-md bg-zinc-800/80 hover:bg-zinc-800 border border-zinc-700 transition flex items-center justify-center shadow-xs">
+          <!-- Sun Icon (Active in dark mode -> switches to light) -->
+          <svg id="theme-icon-sun" class="w-4 h-4 text-zinc-300 hover:text-amber-400 transition" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z" />
+          </svg>
+          <!-- Moon Icon (Active in light mode -> switches to dark) -->
+          <svg id="theme-icon-moon" class="w-4 h-4 text-zinc-600 hover:text-zinc-900 transition hidden" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" />
+          </svg>
+        </button>
+
         <!-- Clear / Reset Chat action -->
-        <button id="btn-clear-chat" title="Clear current messages" class="text-xs text-zinc-400 hover:text-zinc-200 px-2 py-1 rounded-md hover:bg-[#2a2a2a] transition flex items-center gap-1">
+        <button id="btn-clear-chat" title="Clear current messages" class="text-xs text-zinc-400 hover:text-zinc-200 px-2 py-1 rounded-md hover:bg-zinc-800 transition flex items-center gap-1">
           <svg class="w-3.5 h-3.5 text-zinc-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
           </svg>
@@ -474,7 +651,7 @@
         <!-- Empty State Hero (ChatGPT / Gemini Clean Style) -->
         <div id="hero-state" class="py-16 md:py-24 flex flex-col items-center justify-center text-center">
           <!-- Spark Icon -->
-          <div class="h-10 w-10 rounded-2xl bg-[#2a2a2a] border border-[#383838] flex items-center justify-center mb-4 text-indigo-400 shadow-sm">
+          <div class="h-10 w-10 rounded-2xl bg-zinc-800 border border-zinc-700 flex items-center justify-center mb-4 text-zinc-300 shadow-sm">
             <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/>
             </svg>
@@ -489,7 +666,7 @@
 
           <!-- Prompt Pills Grid -->
           <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5 w-full max-w-xl">
-            <button class="quick-pill text-left p-3 rounded-xl bg-[#262626]/70 hover:bg-[#2a2a2a] border border-[#333] hover:border-zinc-500/50 transition group flex flex-col gap-1">
+            <button class="quick-pill text-left p-3 rounded-xl bg-[#262626]/70 hover:bg-zinc-800 border border-zinc-800 hover:border-zinc-700 transition group flex flex-col gap-1">
               <span class="text-xs font-medium text-zinc-200 group-hover:text-white flex items-center gap-1.5">
                 <span>📦</span> Track an order
               </span>
@@ -498,7 +675,7 @@
               </span>
             </button>
 
-            <button class="quick-pill text-left p-3 rounded-xl bg-[#262626]/70 hover:bg-[#2a2a2a] border border-[#333] hover:border-zinc-500/50 transition group flex flex-col gap-1">
+            <button class="quick-pill text-left p-3 rounded-xl bg-[#262626]/70 hover:bg-zinc-800 border border-zinc-800 hover:border-zinc-700 transition group flex flex-col gap-1">
               <span class="text-xs font-medium text-zinc-200 group-hover:text-white flex items-center gap-1.5">
                 <span>📄</span> Policy & returns
               </span>
@@ -507,7 +684,7 @@
               </span>
             </button>
 
-            <button class="quick-pill text-left p-3 rounded-xl bg-[#262626]/70 hover:bg-[#2a2a2a] border border-[#333] hover:border-zinc-500/50 transition group flex flex-col gap-1">
+            <button class="quick-pill text-left p-3 rounded-xl bg-[#262626]/70 hover:bg-zinc-800 border border-zinc-800 hover:border-zinc-700 transition group flex flex-col gap-1">
               <span class="text-xs font-medium text-zinc-200 group-hover:text-white flex items-center gap-1.5">
                 <span>🛑</span> Cancel an order
               </span>
@@ -516,7 +693,7 @@
               </span>
             </button>
 
-            <button class="quick-pill text-left p-3 rounded-xl bg-[#262626]/70 hover:bg-[#2a2a2a] border border-[#333] hover:border-zinc-500/50 transition group flex flex-col gap-1">
+            <button class="quick-pill text-left p-3 rounded-xl bg-[#262626]/70 hover:bg-zinc-800 border border-zinc-800 hover:border-zinc-700 transition group flex flex-col gap-1">
               <span class="text-xs font-medium text-zinc-200 group-hover:text-white flex items-center gap-1.5">
                 <span>📱</span> Technical diagnostics
               </span>
@@ -540,13 +717,13 @@
       <div class="max-w-3xl mx-auto w-full">
 
         <!-- Active Lifecycle Status Toast Banner (Sleek Gemini-style thought pill) -->
-        <div id="lifecycle-banner" class="hidden mb-2 px-3 py-1.5 rounded-full bg-[#2a2a2a] border border-[#383838] text-xs text-zinc-300 w-max mx-auto flex items-center gap-2 shadow-sm animate-pulse">
-          <svg class="animate-spin h-3.5 w-3.5 text-indigo-400" viewBox="0 0 24 24" fill="none">
+        <div id="lifecycle-banner" class="hidden mb-2 px-3 py-1.5 rounded-full bg-zinc-800 border border-zinc-700 text-xs text-zinc-300 w-max mx-auto flex items-center gap-2 shadow-sm animate-pulse">
+          <svg class="animate-spin h-3.5 w-3.5 text-zinc-400" viewBox="0 0 24 24" fill="none">
             <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
             <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"></path>
           </svg>
           <span id="lifecycle-text" class="text-zinc-300 text-[12px]">Analyzing intent...</span>
-          <span id="lifecycle-step" class="text-[10px] font-mono px-1.5 py-0.5 rounded bg-[#1f1f1f] text-indigo-400 border border-[#3a3a3a]">ROUTING</span>
+          <span id="lifecycle-step" class="text-[10px] font-mono px-1.5 py-0.5 rounded bg-zinc-900 text-zinc-400 border border-zinc-700">ROUTING</span>
         </div>
 
         <!-- Prompt Input Pill -->
@@ -583,6 +760,9 @@
     </footer>
 
   </div>
+
+  <!-- Toast Notification Container (Bottom Right) -->
+  <div id="toast-container" class="fixed bottom-5 right-5 z-50 flex flex-col gap-2 pointer-events-none"></div>
 
   <script src="script.js"></script>
 </body>

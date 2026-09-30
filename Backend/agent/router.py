@@ -41,6 +41,8 @@ from google import genai
 from google.genai import types
 from pydantic import BaseModel, Field
 
+from Backend.core.guardrails import check_prompt_injection, llm_circuit_breaker
+
 # Load root .env if present
 ENV_PATH = ROOT_DIR / ".env"
 if ENV_PATH.exists():
@@ -215,6 +217,21 @@ class IntentRouter:
 
         clean_query = query.strip()
 
+        # Guardrail: Intercept prompt injection attempts early
+        is_inj, _ = check_prompt_injection(clean_query)
+        if is_inj:
+            return RouteDecision(
+                intent=IntentType.GENERAL_ESCALATION,
+                confidence=1.0,
+                entities=ExtractedEntities(),
+                reasoning="Prompt injection attempt flagged by security guardrail.",
+            )
+
+        # Circuit Breaker: Check LLM availability before making external network calls
+        if not llm_circuit_breaker.is_available():
+            logger.warning("LLM Circuit Breaker is OPEN. Routing via deterministic heuristic fallback.")
+            return self._heuristic_fallback(clean_query)
+
         # Format conversation history context if provided
         history_str = ""
         if history:
@@ -254,6 +271,7 @@ class IntentRouter:
                 clean_json = re.sub(r"\s*```$", "", clean_json.strip(), flags=re.MULTILINE)
 
                 decision = RouteDecision.model_validate_json(clean_json)
+                llm_circuit_breaker.record_success()
                 return decision
 
             except Exception as exc:
@@ -264,6 +282,9 @@ class IntentRouter:
                     self.max_retries,
                     exc,
                 )
+
+        # Record failure on circuit breaker upon exhausting retries
+        llm_circuit_breaker.record_failure()
 
         # Fallback Heuristic Routing on API failure
         logger.error(

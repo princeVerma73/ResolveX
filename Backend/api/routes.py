@@ -5,6 +5,7 @@ Step 7: API Layer & WebSocket Chat.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import sys
 import uuid
@@ -23,6 +24,7 @@ from Backend.api.schemas import (
     ChatResponse,
     HealthResponse,
     SessionHistoryResponse,
+    VisitorCountResponse,
 )
 from Backend.core.exceptions import ResourceNotFoundError
 from Backend.db.supabase_client import verify_connection
@@ -235,3 +237,48 @@ async def get_session_history(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to retrieve session transcript.",
         )
+
+
+# -----------------------------------------------------------------------------
+# 4. Global Live Visitor Counter Endpoint
+# -----------------------------------------------------------------------------
+
+_visitor_lock = asyncio.Lock()
+VISITOR_FILE = ROOT_DIR / "data" / "visitor_count.txt"
+
+
+def _read_visitor_count() -> int:
+    """Reads persistent visitor count from disk safely."""
+    try:
+        if VISITOR_FILE.exists():
+            content = VISITOR_FILE.read_text(encoding="utf-8").strip()
+            if content.isdigit():
+                return int(content)
+    except Exception as exc:
+        logger.warning("Could not read visitor count file: %s", exc)
+    return 0
+
+
+def _write_visitor_count(count: int) -> None:
+    """Persists visitor count to disk."""
+    try:
+        VISITOR_FILE.parent.mkdir(parents=True, exist_ok=True)
+        VISITOR_FILE.write_text(str(count), encoding="utf-8")
+    except Exception as exc:
+        logger.error("Could not persist visitor count: %s", exc)
+
+
+@router.get(
+    "/api/visitors",
+    response_model=VisitorCountResponse,
+    summary="Global Live Visitor Counter",
+    description="Tracks and increments global unique visitor sessions persisted to storage.",
+)
+async def get_visitor_count() -> VisitorCountResponse:
+    """Atomically increments and returns the global platform visitor count."""
+    async with _visitor_lock:
+        current_count = _read_visitor_count()
+        new_count = current_count + 1
+        _write_visitor_count(new_count)
+        return VisitorCountResponse(total_visitors=new_count)
+
