@@ -7,13 +7,11 @@
     typeof window !== 'undefined' &&
     (window.location.hostname === 'localhost' ||
       window.location.hostname === '127.0.0.1' ||
-      window.location.protocol === 'file:');
+      window.location.hostname === 'file:');
 
   const defaultBackend = isLocal
     ? 'http://localhost:8000'
-    : (window.location.origin && window.location.origin !== 'null'
-        ? window.location.origin
-        : 'https://your-production-backend.com');
+    : 'https://resolvex-bd8o.onrender.com';
 
   window.__APP_CONFIG__ = {
     BACKEND_URL: window.ENV_BACKEND_URL || defaultBackend,
