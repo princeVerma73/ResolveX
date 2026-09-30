@@ -225,7 +225,7 @@ const dotIndicator = document.getElementById('dot-indicator');
 const pingIndicator = document.getElementById('ping-indicator');
 
 const chatScrollContainer = document.getElementById('chat-scroll-container');
-const heroState = document.getElementById('hero-state');
+const heroState = document.getElementById('welcome-view') || document.getElementById('hero-state');
 const messagesList = document.getElementById('messages-list');
 const chatForm = document.getElementById('chat-form');
 const chatInput = document.getElementById('chat-input');
@@ -238,7 +238,7 @@ const themeIconMoon = document.getElementById('theme-icon-moon');
 const lifecycleBanner = document.getElementById('lifecycle-banner');
 const lifecycleText = document.getElementById('lifecycle-text');
 const lifecycleStep = document.getElementById('lifecycle-step');
-const sessionHistoryList = document.getElementById('session-history-list');
+const sessionHistoryList = document.getElementById('recent-chats-list') || document.getElementById('session-history-list');
 
 // Mobile drawer elements
 const sidebar = document.getElementById('sidebar');
@@ -373,9 +373,9 @@ function renderSessionHistory() {
   sessions.forEach((s) => {
     const isActive = s.id === sessionId;
     const item = document.createElement('div');
-    item.className = `group flex items-center justify-between px-2.5 py-2 rounded-lg cursor-pointer text-xs transition ${
+    item.className = `session-item group flex items-center justify-between px-2.5 py-2 rounded-lg cursor-pointer text-xs transition ${
       isActive
-        ? 'bg-zinc-800 text-white font-medium border border-zinc-700 shadow-sm'
+        ? 'active-chat bg-zinc-800 text-white font-medium border border-zinc-700 shadow-sm'
         : 'text-zinc-400 hover:bg-zinc-800/60 hover:text-zinc-200'
     }`;
 
@@ -475,6 +475,8 @@ function loadSession(targetId) {
     scrollToBottom();
     isFirstMessageInSession = false;
   } else {
+    const welcome = document.getElementById('welcome-view');
+    if (welcome) welcome.classList.remove('hidden');
     if (heroState) heroState.classList.remove('hidden');
     isFirstMessageInSession = true;
   }
@@ -482,14 +484,14 @@ function loadSession(targetId) {
   // Update visual highlight on sidebar
   const currentSessions = getUserSessions();
   userChatCount.textContent = currentSessions.length;
-  const items = sessionHistoryList.querySelectorAll('.group');
+  const items = sessionHistoryList.querySelectorAll('.session-item, .group');
   currentSessions.forEach((s, idx) => {
     const el = items[idx];
     if (el) {
       if (s.id === sessionId) {
-        el.className = 'group flex items-center justify-between px-2.5 py-2 rounded-lg cursor-pointer text-xs transition bg-zinc-800 text-white font-medium border border-zinc-700 shadow-sm';
+        el.className = 'session-item group active-chat flex items-center justify-between px-2.5 py-2 rounded-lg cursor-pointer text-xs transition bg-zinc-800 text-white font-medium border border-zinc-700 shadow-sm';
       } else {
-        el.className = 'group flex items-center justify-between px-2.5 py-2 rounded-lg cursor-pointer text-xs transition text-zinc-400 hover:bg-zinc-800/60 hover:text-zinc-200';
+        el.className = 'session-item group flex items-center justify-between px-2.5 py-2 rounded-lg cursor-pointer text-xs transition text-zinc-400 hover:bg-zinc-800/60 hover:text-zinc-200';
       }
     }
   });
@@ -649,8 +651,13 @@ function scrollToBottom() {
 }
 
 function hideHeroState() {
-  if (heroState && !heroState.classList.contains('hidden')) {
-    heroState.classList.add('hidden');
+  const welcome = document.getElementById('welcome-view');
+  if (welcome && !welcome.classList.contains('hidden')) {
+    welcome.classList.add('hidden');
+  }
+  const hero = document.getElementById('hero-state');
+  if (hero && !hero.classList.contains('hidden')) {
+    hero.classList.add('hidden');
   }
 }
 
@@ -671,7 +678,7 @@ function appendUserMessage(text, shouldSave = true) {
   row.className = 'flex justify-end pt-2';
 
   const pill = document.createElement('div');
-  pill.className = 'max-w-[85%] sm:max-w-xl bg-[#2f2f2f] text-zinc-100 px-4 py-2.5 rounded-3xl text-[15px] leading-relaxed select-text shadow-xs';
+  pill.className = 'user-message-pill max-w-[85%] sm:max-w-xl bg-[#2f2f2f] text-zinc-100 px-4 py-2.5 rounded-3xl text-[15px] leading-relaxed select-text shadow-xs';
   pill.textContent = text;
 
   row.appendChild(pill);
@@ -717,14 +724,14 @@ function renderStoredAssistantMessage(msg) {
 
   if (msg.intent) {
     const intentBadge = document.createElement('span');
-    intentBadge.className = 'inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[11px] font-mono bg-zinc-800/80 border border-zinc-700 text-zinc-300';
+    intentBadge.className = 'pill-tag intent-badge inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[11px] font-mono bg-zinc-800/80 border border-zinc-700 text-zinc-300';
     intentBadge.innerHTML = `<span class="h-1.5 w-1.5 rounded-full ${getIntentDotColor(msg.intent)}"></span>${escapeHtml(msg.intent)}`;
     metaRow.appendChild(intentBadge);
   }
 
   if (msg.confidencePct !== undefined && msg.confidencePct !== null) {
     const confidenceBadge = document.createElement('span');
-    confidenceBadge.className = 'inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[10px] font-mono bg-zinc-800/80 text-zinc-300 border border-zinc-700';
+    confidenceBadge.className = 'pill-tag confidence-pill inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[10px] font-mono bg-zinc-800/80 text-zinc-300 border border-zinc-700';
     confidenceBadge.innerHTML = `<span class="h-1.5 w-1.5 rounded-full bg-zinc-400"></span><span>Confidence: ${msg.confidencePct}%</span>`;
     metaRow.appendChild(confidenceBadge);
   }
@@ -732,7 +739,7 @@ function renderStoredAssistantMessage(msg) {
   if (msg.citations && msg.citations.length > 0) {
     msg.citations.forEach((c) => {
       const chip = document.createElement('span');
-      chip.className = 'px-2 py-0.5 rounded bg-zinc-800/80 border border-zinc-700 text-zinc-400 text-[11px] font-mono hover:text-zinc-200 transition cursor-default';
+      chip.className = 'pill-tag citation-tag px-2 py-0.5 rounded bg-zinc-800/80 border border-zinc-700 text-zinc-400 text-[11px] font-mono hover:text-zinc-200 transition cursor-default';
       chip.textContent = c;
       metaRow.appendChild(chip);
     });
@@ -741,7 +748,7 @@ function renderStoredAssistantMessage(msg) {
   const latency = msg.latency || 120;
   const tokens = msg.tokens || Math.max(12, Math.round((msg.content || '').length / 4));
   const teleTrigger = document.createElement('button');
-  teleTrigger.className = 'inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-mono bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 text-zinc-400 hover:text-zinc-200 transition';
+  teleTrigger.className = 'pill-tag latency-pill telemetry-pill inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-mono bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 text-zinc-400 hover:text-zinc-200 transition';
   teleTrigger.title = 'View Real-Time Round-Trip Telemetry';
   teleTrigger.innerHTML = `<span>⚡</span><span>${latency}ms • ${tokens}t</span>`;
   teleTrigger.addEventListener('click', () => {
@@ -760,7 +767,7 @@ function renderStoredAssistantMessage(msg) {
 
   if (msg.isEscalated) {
     const escAlert = document.createElement('div');
-    escAlert.className = 'mt-2 px-3 py-1.5 rounded-lg bg-zinc-900 border border-zinc-700 text-zinc-300 text-xs flex items-center gap-2';
+    escAlert.className = 'escalation-alert human-escalation-banner mt-2 px-3 py-1.5 rounded-lg bg-zinc-900 border border-zinc-700 text-zinc-300 text-xs flex items-center gap-2';
     escAlert.innerHTML = `
       <svg class="w-4 h-4 text-zinc-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/>
@@ -894,14 +901,14 @@ function handleServerEvent(payload) {
       // 1. Intent Badge (Clean Slate/Zinc)
       if (payload.intent) {
         const intentBadge = document.createElement('span');
-        intentBadge.className = 'inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[11px] font-mono bg-zinc-800/80 border border-zinc-700 text-zinc-300';
+        intentBadge.className = 'pill-tag intent-badge inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[11px] font-mono bg-zinc-800/80 border border-zinc-700 text-zinc-300';
         intentBadge.innerHTML = `<span class="h-1.5 w-1.5 rounded-full ${getIntentDotColor(payload.intent)}"></span>${payload.intent}`;
         metaRow.appendChild(intentBadge);
       }
 
       // 2. Dynamic Confidence Score Pill (Clean Slate/Zinc)
       const confidenceBadge = document.createElement('span');
-      confidenceBadge.className = 'inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[10px] font-mono bg-zinc-800/80 text-zinc-300 border border-zinc-700';
+      confidenceBadge.className = 'pill-tag confidence-pill inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[10px] font-mono bg-zinc-800/80 text-zinc-300 border border-zinc-700';
       confidenceBadge.innerHTML = `<span class="h-1.5 w-1.5 rounded-full bg-zinc-400"></span><span>Confidence: ${confidencePct}%</span>`;
       metaRow.appendChild(confidenceBadge);
 
@@ -909,7 +916,7 @@ function handleServerEvent(payload) {
       if (payload.citations && payload.citations.length > 0) {
         payload.citations.forEach((c) => {
           const chip = document.createElement('span');
-          chip.className = 'px-2 py-0.5 rounded bg-zinc-800/80 border border-zinc-700 text-zinc-400 text-[11px] font-mono hover:text-zinc-200 transition cursor-default';
+          chip.className = 'pill-tag citation-tag px-2 py-0.5 rounded bg-zinc-800/80 border border-zinc-700 text-zinc-400 text-[11px] font-mono hover:text-zinc-200 transition cursor-default';
           chip.textContent = c;
           metaRow.appendChild(chip);
         });
@@ -917,7 +924,7 @@ function handleServerEvent(payload) {
 
       // 4. Telemetry Quick Trigger Pill (Latency & Tokens)
       const teleTrigger = document.createElement('button');
-      teleTrigger.className = 'inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-mono bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 text-zinc-400 hover:text-zinc-200 transition';
+      teleTrigger.className = 'pill-tag latency-pill telemetry-pill inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-mono bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 text-zinc-400 hover:text-zinc-200 transition';
       teleTrigger.title = 'View Real-Time Round-Trip Telemetry';
       teleTrigger.innerHTML = `<span>⚡</span><span>${latency}ms • ${dynamicTokens}t</span>`;
       const turnTelemetrySnapshot = { ...latestTelemetry };
@@ -929,7 +936,7 @@ function handleServerEvent(payload) {
       // 5. Human Escalation Alert
       if (payload.is_escalated) {
         const escAlert = document.createElement('div');
-        escAlert.className = 'mt-2 px-3 py-1.5 rounded-lg bg-zinc-900 border border-zinc-700 text-zinc-300 text-xs flex items-center gap-2';
+        escAlert.className = 'escalation-alert human-escalation-banner mt-2 px-3 py-1.5 rounded-lg bg-zinc-900 border border-zinc-700 text-zinc-300 text-xs flex items-center gap-2';
         escAlert.innerHTML = `
           <svg class="w-4 h-4 text-zinc-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/>
@@ -1050,9 +1057,10 @@ function startNewChat() {
 
 function clearMessagesCanvas() {
   messagesList.innerHTML = '';
-  if (heroState) {
-    heroState.classList.remove('hidden');
-  }
+  const welcome = document.getElementById('welcome-view');
+  if (welcome) welcome.classList.remove('hidden');
+  const hero = document.getElementById('hero-state');
+  if (hero) hero.classList.remove('hidden');
   lifecycleBanner.classList.add('hidden');
 }
 

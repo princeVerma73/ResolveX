@@ -204,17 +204,88 @@
     html.light #btn-new-chat span {
       color: #ffffff !important;
     }
-    html.light #session-history-list > div {
-      border-color: #aeb6c4 !important;
+    /* Light theme Sidebar chat list items */
+    html.light #session-history-list > div,
+    html.light #recent-chats-list > div,
+    html.light .session-item {
+      border-color: #cbd5e1 !important;
+      color: #1e293b !important;
     }
-    html.light #session-history-list > div.bg-\[\#262626\] {
-      background-color: #b8c0cc !important;
+    html.light #session-history-list > div:hover,
+    html.light #recent-chats-list > div:hover,
+    html.light .session-item:hover {
+      background-color: #e2e8f0 !important;
       color: #0f172a !important;
     }
-    html.light #session-history-list > div.bg-\[\#262626\] span {
+    html.light #session-history-list > div.active-chat,
+    html.light #session-history-list > div.bg-zinc-800,
+    html.light #session-history-list > div.bg-\[\#262626\],
+    html.light #recent-chats-list > div.active-chat,
+    html.light #recent-chats-list > div.bg-zinc-800,
+    html.light .session-item.active-chat {
+      background-color: #cbd5e1 !important;
+      color: #0f172a !important;
+      border-color: #94a3b8 !important;
+      font-weight: 600 !important;
+    }
+    html.light #session-history-list > div.active-chat span,
+    html.light #session-history-list > div.bg-zinc-800 span,
+    html.light #session-history-list > div.bg-\[\#262626\] span,
+    html.light #recent-chats-list > div.active-chat span,
+    html.light #recent-chats-list > div.bg-zinc-800 span,
+    html.light .session-item.active-chat span {
+      color: #0f172a !important;
+      font-weight: 600 !important;
+    }
+
+    /* Light theme Metadata Pills & Badges (.pill-tag, .citation-tag, .telemetry-pill, etc.) */
+    html.light .pill-tag,
+    html.light .citation-tag,
+    html.light .intent-badge,
+    html.light .confidence-pill,
+    html.light .telemetry-pill,
+    html.light .meta-badge,
+    html.light .meta-pill {
+      background-color: #e2e8f0 !important;
+      color: #1e293b !important;
+      border-color: #cbd5e1 !important;
+    }
+    html.light .pill-tag span,
+    html.light .citation-tag span,
+    html.light .intent-badge span,
+    html.light .confidence-pill span,
+    html.light .telemetry-pill span,
+    html.light .meta-badge span,
+    html.light .meta-pill span {
+      color: #1e293b !important;
+    }
+    html.light .telemetry-pill:hover,
+    html.light button.meta-pill:hover {
+      background-color: #cbd5e1 !important;
       color: #0f172a !important;
     }
-    html.light .flex.justify-end > div {
+    html.light .telemetry-pill:hover span,
+    html.light button.meta-pill:hover span {
+      color: #0f172a !important;
+    }
+
+    /* Light theme Human Escalation Banner */
+    html.light .escalation-alert,
+    html.light .human-escalation-banner {
+      background-color: #fef3c7 !important; /* bg-amber-100 */
+      color: #78350f !important;           /* text-amber-900 */
+      border-color: #fcd34d !important;     /* border-amber-300 */
+    }
+    html.light .escalation-alert span,
+    html.light .escalation-alert svg,
+    html.light .human-escalation-banner span,
+    html.light .human-escalation-banner svg {
+      color: #78350f !important;
+    }
+
+    /* Light theme User Message bubble */
+    html.light .flex.justify-end > div,
+    html.light .user-message-pill {
       background-color: #dbe0e7 !important;
       border: 1px solid #aeb6c4 !important;
       color: #0f172a !important;
