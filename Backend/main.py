@@ -5,6 +5,7 @@ Step 7: API Layer & WebSocket Chat.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 import sys
@@ -24,9 +25,58 @@ from Backend.api.websocket import router as websocket_router
 
 logger = logging.getLogger(__name__)
 
+# Default keep-alive interval: 12 hours (43,200 seconds)
+SUPABASE_KEEP_ALIVE_INTERVAL_SECONDS = int(
+    os.getenv("SUPABASE_KEEP_ALIVE_INTERVAL", str(12 * 60 * 60))
+)
+
 
 # -----------------------------------------------------------------------------
-# 1. Lifespan Management
+# 1. Supabase Anti-Sleep Keep-Alive Background Service
+# -----------------------------------------------------------------------------
+
+def ping_supabase_db() -> bool:
+    """Performs a lightweight query to Supabase to prevent the free tier from pausing."""
+    try:
+        from Backend.db.supabase_client import get_supabase_client
+
+        client = get_supabase_client()
+        # Lightweight probe: query a single row from customers or chat_sessions
+        try:
+            client.table("customers").select("customer_id", count="exact").limit(1).execute()
+        except Exception:
+            client.table("chat_sessions").select("session_id", count="exact").limit(1).execute()
+
+        logger.info("Supabase anti-sleep keep-alive ping succeeded.")
+        return True
+    except Exception as exc:
+        logger.warning("Supabase keep-alive ping attempt failed: %s", exc)
+        return False
+
+
+async def supabase_anti_sleep_task(
+    interval_seconds: int = SUPABASE_KEEP_ALIVE_INTERVAL_SECONDS,
+) -> None:
+    """Asynchronous background loop that pings Supabase periodically to prevent inactivity pausing."""
+    logger.info(
+        "Started Supabase anti-sleep background task (interval=%d seconds).",
+        interval_seconds,
+    )
+    while True:
+        try:
+            await asyncio.to_thread(ping_supabase_db)
+        except Exception as exc:
+            logger.warning("Error during Supabase keep-alive ping execution: %s", exc)
+
+        try:
+            await asyncio.sleep(interval_seconds)
+        except asyncio.CancelledError:
+            logger.info("Supabase anti-sleep background task cancelled.")
+            break
+
+
+# -----------------------------------------------------------------------------
+# 2. Lifespan Management
 # -----------------------------------------------------------------------------
 
 @asynccontextmanager
@@ -45,9 +95,19 @@ async def lifespan(app: FastAPI):
         )
         app.state.orchestrator = None
 
+    # Start Supabase anti-sleep keep-alive background task (runs every 12 hours)
+    keep_alive_task = asyncio.create_task(supabase_anti_sleep_task())
+    app.state.keep_alive_task = keep_alive_task
+
     yield
 
     logger.info("Shutting down ResolveX API services...")
+    if keep_alive_task and not keep_alive_task.done():
+        keep_alive_task.cancel()
+        try:
+            await keep_alive_task
+        except asyncio.CancelledError:
+            pass
 
 
 # -----------------------------------------------------------------------------

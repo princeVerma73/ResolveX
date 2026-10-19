@@ -276,9 +276,33 @@ async def get_session_history(
         )
 
     try:
+        # 1. Attempt lookup in Redis session cache
+        cached_session = await redis_cache.get_session_transcript(clean_id)
+        if cached_session:
+            messages = cached_session.get("messages", [])
+            if not messages:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="Session not found",
+                )
+            return SessionHistoryResponse(**cached_session)
+
+        # 2. Query persistent chat service from Supabase
         session_data = chat_svc.get_session_with_messages(clean_id)
+        if not session_data or not getattr(session_data, "messages", None):
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Session not found",
+            )
+
         messages_list = [msg.model_dump(mode="json") for msg in session_data.messages]
-        return SessionHistoryResponse(
+        if not messages_list:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Session not found",
+            )
+
+        response = SessionHistoryResponse(
             session_id=session_data.session_id,
             customer_id=session_data.customer_id,
             messages=messages_list,
@@ -286,16 +310,27 @@ async def get_session_history(
             created_at=session_data.created_at.isoformat() if session_data.created_at else None,
             updated_at=session_data.updated_at.isoformat() if session_data.updated_at else None,
         )
+
+        # Asynchronously populate Redis session cache for sub-10ms subsequent reads
+        try:
+            await redis_cache.set_session_transcript(clean_id, response.model_dump(mode="json"))
+        except Exception as cache_exc:
+            logger.debug("Failed to set Redis session transcript cache: %s", cache_exc)
+
+        return response
+
+    except HTTPException:
+        raise
     except ResourceNotFoundError:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Chat session '{clean_id}' was not found.",
+            detail="Session not found",
         )
     except Exception as exc:
-        logger.error("Error retrieving session history: %s", exc)
+        logger.warning("Session lookup exception for '%s': %s", clean_id, exc)
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to retrieve session transcript.",
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Session not found",
         )
 
 

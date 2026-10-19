@@ -23,6 +23,7 @@ logger = logging.getLogger(__name__)
 # Cache Configuration
 DEFAULT_CACHE_TTL = 3600  # 1 hour expiration
 KEY_PREFIX = "cache:query:"
+SESSION_KEY_PREFIX = "cache:session:"
 
 
 class RedisCacheService:
@@ -186,6 +187,55 @@ class RedisCacheService:
             return False
         except Exception as exc:
             logger.warning("Unexpected error during Redis set: %s", exc)
+            return False
+
+    async def get_session_transcript(self, session_id: str) -> dict[str, Any] | None:
+        """Retrieves cached session transcript from Redis.
+
+        Returns None on cache miss or if Redis is unreachable (graceful fallback).
+        """
+        if not session_id or not session_id.strip():
+            return None
+
+        key = f"{SESSION_KEY_PREFIX}{session_id.strip()}"
+        try:
+            client = self._get_async_client()
+            raw_data = await client.get(key)
+            if raw_data:
+                logger.info("Redis session transcript HIT: key=%s", key)
+                return json.loads(raw_data)
+            return None
+        except (RedisConnectionError, RedisTimeoutError, OSError) as exc:
+            logger.debug("Redis session transcript get fallback: %s", exc)
+            return None
+        except Exception as exc:
+            logger.warning("Unexpected error during Redis session get: %s", exc)
+            return None
+
+    async def set_session_transcript(
+        self,
+        session_id: str,
+        data: dict[str, Any],
+        ttl: int = 86400,
+    ) -> bool:
+        """Writes session transcript payload to Redis with TTL expiration (default 24h).
+
+        Returns False gracefully if Redis is unreachable without raising exceptions.
+        """
+        if not session_id or not session_id.strip() or not data:
+            return False
+
+        key = f"{SESSION_KEY_PREFIX}{session_id.strip()}"
+        try:
+            client = self._get_async_client()
+            await client.set(key, json.dumps(data), ex=ttl)
+            logger.info("Redis session transcript SET: key=%s ttl=%ds", key, ttl)
+            return True
+        except (RedisConnectionError, RedisTimeoutError, OSError) as exc:
+            logger.debug("Redis session transcript set fallback: %s", exc)
+            return False
+        except Exception as exc:
+            logger.warning("Unexpected error during Redis session set: %s", exc)
             return False
 
     # -------------------------------------------------------------------------
