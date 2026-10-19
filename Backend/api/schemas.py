@@ -47,6 +47,18 @@ class ChatResponse(BaseModel):
         default_factory=list,
         description="Document chunk IDs or passage references supporting the response",
     )
+    tokens: int | None = Field(
+        default=None,
+        description="Total prompt and completion token count",
+    )
+    rag_score: float | None = Field(
+        default=None,
+        description="Groundedness / retrieval cross-encoder relevance score (0.0 - 1.0)",
+    )
+    latency_ms: int | None = Field(
+        default=None,
+        description="Execution round-trip latency in milliseconds",
+    )
     is_escalated: bool = Field(
         default=False,
         description="Whether this query has been routed to a human support specialist",

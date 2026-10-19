@@ -133,6 +133,9 @@ class TestChatRESTEndpoint:
         assert "chk_refund_01" in data["citations"]
         assert data["is_escalated"] is False
         assert data["clarification_needed"] is False
+        assert data["tokens"] is not None and data["tokens"] > 0
+        assert data["rag_score"] is not None
+        assert data["latency_ms"] is not None and data["latency_ms"] >= 0
 
     def test_chat_endpoint_empty_query_422(self, client):
         response = client.post("/api/chat", json={"query": ""})
