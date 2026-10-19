@@ -31,22 +31,6 @@ It combines a **LangGraph multi-agent orchestrator** with a **hybrid RAG knowled
 
 ---
 
-## 🖥️ UI Preview
-
-> **Screenshots** — Replace the placeholders below with actual screenshots of your deployed interface.
-
-| Dark Mode Chat Interface | Real-Time Telemetry Modal |
-|:---:|:---:|
-| ![Dark mode chat UI](./docs/screenshots/chat_dark_mode.png) | ![Telemetry modal](./docs/screenshots/telemetry_modal.png) |
-
-| Light Mode | Session Sidebar & History |
-|:---:|:---:|
-| ![Light mode](./docs/screenshots/chat_light_mode.png) | ![Session sidebar](./docs/screenshots/session_sidebar.png) |
-
-> 📝 *Add your screenshots to `docs/screenshots/` and update the paths above.*
-
----
-
 ## 🏗️ System Architecture
 
 ```mermaid
