@@ -222,9 +222,9 @@ ResolveX/
 │   └── migrations/
 │       └── 001_initial_schema.sql  # 7 relational tables, RLS policies & indexes
 ├── docs/
-│   ├── architecture.md
-│   ├── implementation_guide.md
-│   └── screenshots/              # Add your UI screenshots here
+│   ├── INTERVIEW_METRICS_AND_COMPARISON_GUIDE.md  # 🏆 Master interview defense & metrics guide
+│   ├── ResolveX_Beginner_Guide.md                 # 📖 Comprehensive beginner & system guide
+│   └── DOCKER_GUIDE.md                            # 🐳 Containerization & deployment manual
 ├── frontend/
 │   ├── index.html                # Single-page chat interface & modals
 │   ├── script.js                 # WebSocket client, telemetry binding & theme engine
