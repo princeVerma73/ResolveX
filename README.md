@@ -253,8 +253,7 @@ ResolveX/
 | **Frontend Interface** | Netlify | [resolvex-ai.netlify.app](https://resolvex-ai.netlify.app/) |
 | **Backend API** | Render | [resolvex-bd8o.onrender.com](https://resolvex-bd8o.onrender.com) |
 | **Swagger / OpenAPI Docs** | Render | [resolvex-bd8o.onrender.com/docs](https://resolvex-bd8o.onrender.com/docs) |
-| **Vector Database** | Qdrant Cloud | Managed persistent vector collection |
-| **Relational Database** | Supabase | Managed PostgreSQL with RLS |
+| **Vector & Relational Database** | Supabase | Managed PostgreSQL with pgvector & RLS |
 
 ---
 
@@ -263,7 +262,7 @@ ResolveX/
 ### Prerequisites
 
 - **Python 3.10+** (tested on Python 3.12)
-- **Docker & Docker Compose** — for Redis + Qdrant local services
+- **Docker & Docker Compose** — for Redis local services
 - A modern web browser (Chrome, Edge, Firefox, Safari)
 
 ---
