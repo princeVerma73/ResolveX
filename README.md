@@ -3,7 +3,6 @@
 [![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?style=flat-square&logo=python&logoColor=white)](https://www.python.org/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.110%2B-009688?style=flat-square&logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com)
 [![LangGraph](https://img.shields.io/badge/LangGraph-Multi--Agent-FF6B35?style=flat-square)](https://github.com/langchain-ai/langgraph)
-[![Qdrant](https://img.shields.io/badge/Qdrant-Vector%20DB-DC2626?style=flat-square)](https://qdrant.tech/)
 [![Supabase](https://img.shields.io/badge/Supabase-PostgreSQL-3ECF8E?style=flat-square&logo=supabase&logoColor=white)](https://supabase.com)
 [![Redis](https://img.shields.io/badge/Redis-Cache-DC382D?style=flat-square&logo=redis&logoColor=white)](https://redis.io/)
 [![Tests](https://img.shields.io/badge/Tests-229%20Passed%20%7C%20100%25-22C55E?style=flat-square)](./tests)
@@ -116,7 +115,7 @@ A **supervisor-router pattern** classifies every incoming query into one of five
 
 ### 📚 Hybrid RAG Knowledge Engine
 
-- **Dense Vector Search** via **Qdrant** (hosted vector database) with semantic embeddings
+- **Dense Vector Search** via **Supabase PostgreSQL (`pgvector`)** storing semantic embeddings right inside the relational database
 - **Neural Cross-Encoder Reranking** via **FlashRank** to maximize answer groundedness
 - **Reciprocal Rank Fusion (RRF)** for combining multiple retrieval signals
 - **Strict Groundedness Threshold** (≥ 0.75) — queries below threshold cleanly escalate rather than hallucinate
@@ -135,7 +134,7 @@ An in-browser performance modal populates live after every chat interaction:
 | **Confidence / RAG Score %** | Cross-encoder groundedness via FlashRank |
 | **Classified Intent** | LangGraph supervisor routing decision |
 | **Active Session ID** | Current `SES-XXXX` session identifier |
-| **Grounded Citations** | `chunk_id` source references from Qdrant |
+| **Grounded Citations** | `chunk_id` source references from PostgreSQL |
 
 Every chat bubble also shows inline `⚡ {latency}ms · {tokens}t` performance pills. Clicking any pill opens the telemetry modal pre-populated with that turn's exact metrics.
 
@@ -161,8 +160,7 @@ Every chat bubble also shows inline `⚡ {latency}ms · {tokens}t` performance p
 
 - **Frontend → Netlify** — Auto-deploys from `main` branch, global CDN, SPA redirect rules via `netlify.toml`
 - **Backend → Render** — Dockerfile-based deploy with `gunicorn + uvicorn` workers, auto-deploys on push
-- **Vector DB → Qdrant Cloud** — Managed, persistent vector collection
-- **Database → Supabase** — Managed PostgreSQL with Row-Level Security (RLS) migrations
+- **Vector & Relational DB → Supabase** — Managed PostgreSQL with `pgvector` extension and Row-Level Security (RLS) migrations
 - **Cache → Redis** — Docker Compose for local dev; cloud Redis/Upstash for production
 - **Supabase Anti-Sleep** — Async background task pings Supabase every 12 hours to prevent free-tier pausing
 
