@@ -58,7 +58,7 @@ flowchart TD
     end
 
     subgraph RAG ["Hybrid RAG Pipeline"]
-        QDRANT[(Qdrant Vector DB Cloud)]
+        PGVECTOR[(Supabase PostgreSQL pgvector)]
         FLASHRANK[FlashRank Neural Reranker]
         RRF[Reciprocal Rank Fusion]
     end
@@ -82,7 +82,7 @@ flowchart TD
     ROUTER -->|TECHNICAL_SUPPORT| TECH_NODE
     ROUTER -->|GENERAL_ESCALATION| ESCALATE_NODE
 
-    POLICY_NODE <--> QDRANT
+    POLICY_NODE <--> PGVECTOR
     POLICY_NODE <--> FLASHRANK
     FLASHRANK <--> RRF
     ORDER_NODE <--> SUPABASE
@@ -417,7 +417,7 @@ pytest tests/test_domain_models.py tests/test_database_schema.py  # Data layer
 | **ASGI Server** | Uvicorn + Gunicorn | Production process management |
 | **Agent Orchestration** | LangGraph | Multi-agent StateGraph execution |
 | **LLM** | Google Gemini (`google-genai`) | Intent routing & response generation |
-| **Vector Database** | Qdrant Cloud | Dense semantic search & embedding storage |
+| **Vector Database** | Supabase PostgreSQL (`pgvector`) | Dense semantic search & embedding storage |
 | **Neural Reranker** | FlashRank + RRF | Cross-encoder groundedness scoring |
 | **Relational DB** | Supabase PostgreSQL | Orders, sessions, tickets, customers |
 | **Cache Layer** | Redis | Sub-10ms response caching for repeated queries |
